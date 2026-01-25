@@ -3,7 +3,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 
 // PRODUCTION URL - Ganti dengan URL deploy terbaru Anda
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyxp4aKbxeQxuQ2aqc2ayqlkple4i7tasT0DvNOyTkDsubE8hptnF4Y5zgW6J-ZPQLrvw/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwV8G0FdySbIByd7Pgki6DiEJefjOAPF0zjZ1lMPvSqeGJ5MccBuf9cZKcTB23znbU8pw/exec';
 
 const App = () => {
   // States
