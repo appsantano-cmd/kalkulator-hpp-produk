@@ -5,13 +5,36 @@ import './App.css';
 // PRODUCTION URL - PASTIKAN INI ADALAH URL GOOGLE SCRIPT
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyLEjp-p9CFvpu9lLEfz1I7TPA1iLeYO4KEJVISKnl5AfReHVM3yqzoteNaNjMOJoAS0g/exec';
 
+// Kategori HPP yang baru
+const CATEGORIES = {
+  'Makanan': [
+    'Kids Menu',
+    'Appetizer',
+    'Main Course',
+    'Dessert',
+    'Breakfast Menu',
+    'Veggies',
+    'Others'
+  ],
+  'Minuman': [
+    'Signature',
+    'Espresso Based',
+    'Single Origin',
+    'Frappuccino',
+    'Milkshake',
+    'Ice Cream',
+    'Non Coffee'
+  ]
+};
+
 const App = () => {
   // States
   const [brand, setBrand] = useState('');
   const [targetCost, setTargetCost] = useState('');
   const [targetPieces, setTargetPieces] = useState('');
   const [recipeName, setRecipeName] = useState('');
-  const [recipeCategory, setRecipeCategory] = useState('Cake');
+  const [recipeCategory, setRecipeCategory] = useState('Main Course');
+  const [recipeSubCategory, setRecipeSubCategory] = useState('');
   const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('checking');
@@ -38,6 +61,15 @@ const App = () => {
   // History
   const [recipeHistory, setRecipeHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+
+  // Update subcategories ketika kategori utama berubah
+  useEffect(() => {
+    // Set subcategory pertama sebagai default ketika kategori berubah
+    const subCategories = CATEGORIES[recipeCategory] || [];
+    if (subCategories.length > 0 && !recipeSubCategory) {
+      setRecipeSubCategory(subCategories[0]);
+    }
+  }, [recipeCategory, recipeSubCategory]);
 
   // ===== UTILITY FUNCTIONS =====
   const formatRupiah = (number) => {
@@ -117,7 +149,8 @@ const App = () => {
     setTargetCost('');
     setTargetPieces('');
     setRecipeName('');
-    setRecipeCategory('Cake');
+    setRecipeCategory('Makanan');
+    setRecipeSubCategory('Main Course');
     setIngredients([{ id: 1, name: '', usage: '', unit: 'gr', purchasePrice: '', purchaseUnit: '' }]);
     setConsumable({ name: 'Packaging', cost: '', quantity: '1', unit: 'unit' });
     setGoFoodPercentage(20);
@@ -251,7 +284,8 @@ const App = () => {
 
   const loadFromCache = (recipe) => {
     setRecipeName(recipe.recipe_name);
-    setRecipeCategory(recipe.recipe_category);
+    setRecipeCategory(recipe.recipe_category || 'Makanan');
+    setRecipeSubCategory(recipe.recipe_subcategory || 'Main Course');
     setBrand(recipe.brand);
     setTargetCost(recipe.target_cost?.toString() || '');
     setTargetPieces(recipe.target_pieces?.toString() || '');
@@ -298,6 +332,7 @@ const App = () => {
         timestamp: timestamp,
         recipe_name: recipeName.trim(),
         recipe_category: recipeCategory,
+        recipe_subcategory: recipeSubCategory,
         brand: brand.trim() || '-',
         target_cost: parseFloat(targetCost) || 0,
         target_pieces: parseFloat(targetPieces) || 0,
@@ -462,10 +497,6 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // ===== RENDER =====
-  // (Render code tetap sama seperti sebelumnya, tidak berubah)
-  // ... (kode render component yang sama)
-
   return (
     <div className="container mt-3">
       {/* Header */}
@@ -570,7 +601,7 @@ const App = () => {
                     className="form-control"
                     value={recipeName}
                     onChange={(e) => setRecipeName(e.target.value)}
-                    placeholder="Contoh: Carrot Cake Premium"
+                    placeholder="Contoh: Spaghetti Carbonara"
                     disabled={isLoading}
                     required
                   />
@@ -578,22 +609,34 @@ const App = () => {
                 </div>
                 <div className="col-md-6">
                   <label className="form-label">
-                    <i className="bi bi-tags me-2"></i>Kategori
+                    <i className="bi bi-tags me-2"></i>Kategori HPP
                   </label>
                   <select
-                    className="form-select"
+                    className="form-select mb-2"
                     value={recipeCategory}
-                    onChange={(e) => setRecipeCategory(e.target.value)}
+                    onChange={(e) => {
+                      setRecipeCategory(e.target.value);
+                      // Reset subcategory ketika kategori berubah
+                      const subCategories = CATEGORIES[e.target.value] || [];
+                      setRecipeSubCategory(subCategories[0] || '');
+                    }}
                     disabled={isLoading}
                   >
-                    <option value="Cake">Cake</option>
-                    <option value="Pastry">Pastry</option>
-                    <option value="Bread">Roti</option>
-                    <option value="Cookies">Cookies</option>
-                    <option value="Dessert">Dessert</option>
-                    <option value="Beverage">Minuman</option>
-                    <option value="Main Course">Main Course</option>
-                    <option value="Other">Lainnya</option>
+                    <option value="Makanan">Makanan</option>
+                    <option value="Minuman">Minuman</option>
+                  </select>
+                  
+                  <select
+                    className="form-select"
+                    value={recipeSubCategory}
+                    onChange={(e) => setRecipeSubCategory(e.target.value)}
+                    disabled={isLoading}
+                  >
+                    {CATEGORIES[recipeCategory]?.map((subCategory) => (
+                      <option key={subCategory} value={subCategory}>
+                        {subCategory}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -608,7 +651,7 @@ const App = () => {
                     className="form-control"
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
-                    placeholder="Contoh: Carrot Cake Delight"
+                    placeholder="Contoh: Signature Dish"
                     disabled={isLoading}
                   />
                 </div>
@@ -1069,6 +1112,7 @@ const App = () => {
                           <th>Tanggal</th>
                           <th>Nama Resep</th>
                           <th>Kategori</th>
+                          <th>Sub-Kategori</th>
                           <th>HPP</th>
                           <th>Harga Jual</th>
                           <th>Aksi</th>
@@ -1080,6 +1124,7 @@ const App = () => {
                             <td><small>{recipe.timestamp}</small></td>
                             <td><strong>{recipe.recipe_name}</strong></td>
                             <td><span className="badge bg-info">{recipe.recipe_category}</span></td>
+                            <td><span className="badge bg-secondary">{recipe.recipe_subcategory}</span></td>
                             <td>{formatRupiah(recipe.hpp_per_piece || 0)}</td>
                             <td>{formatRupiah(recipe.gofood_price || 0)}</td>
                             <td>
