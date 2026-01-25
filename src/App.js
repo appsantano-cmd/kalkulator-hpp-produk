@@ -212,6 +212,38 @@ const App = () => {
     }
   };
 
+  // ===== LOCAL CACHE =====
+  const saveToLocalCache = (summaryData, ingredientsData) => {
+    try {
+      const cacheData = {
+        ...summaryData,
+        ingredients: ingredientsData,
+        cached_at: new Date().toISOString()
+      };
+      
+      const existingCache = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
+      existingCache.unshift(cacheData);
+      localStorage.setItem('hpp_cache', JSON.stringify(existingCache.slice(0, 20)));
+      setRecipeHistory(existingCache.slice(0, 20));
+    } catch (error) {
+      console.error('Cache error:', error);
+    }
+  };
+
+  const loadFromCache = (recipe) => {
+    setRecipeName(recipe.recipe_name);
+    setRecipeCategory(recipe.recipe_category);
+    setBrand(recipe.brand);
+    setTargetCost(recipe.target_cost?.toString() || '');
+    setTargetPieces(recipe.target_pieces?.toString() || '');
+    setProfitMargin(recipe.profit_margin || 40);
+    setGoFoodPercentage(recipe.gofood_percentage || 20);
+    setTaxPercentage(recipe.tax_percentage || 10);
+    
+    setSaveStatus({ type: 'info', message: '📂 Recipe loaded. Re-enter ingredients.' });
+    setShowHistory(false);
+  };
+
   // ===== SIMPAN KE GOOGLE SHEETS =====
   const saveToGoogleSheets = async () => {
     // Validasi
@@ -235,12 +267,16 @@ const App = () => {
     setIsLoading(true);
     setSaveStatus({ type: 'loading', message: '📤 Sending to Google Sheets...' });
 
+    // Deklarasikan variabel di sini agar bisa diakses di catch block
+    let summaryData = null;
+    let ingredientsData = null;
+
     try {
       // Prepare data
       const now = new Date();
       const timestamp = now.toLocaleString('id-ID');
 
-      const summaryData = {
+      summaryData = {
         timestamp: timestamp,
         recipe_name: recipeName.trim(),
         recipe_category: recipeCategory,
@@ -260,7 +296,7 @@ const App = () => {
         status: 'ACTIVE'
       };
 
-      const ingredientsData = ingredients.map((ing, index) => ({
+      ingredientsData = ingredients.map((ing, index) => ({
         recipe_name: recipeName.trim(),
         ingredient_no: index + 1,
         ingredient_name: ing.name.trim(),
@@ -314,7 +350,9 @@ const App = () => {
         });
         
         // Save to local cache
-        saveToLocalCache(summaryData, ingredientsData);
+        if (summaryData && ingredientsData) {
+          saveToLocalCache(summaryData, ingredientsData);
+        }
         
         // Reset form
         setTimeout(() => {
@@ -341,64 +379,34 @@ const App = () => {
       
       setSaveStatus({ type: 'error', message: errorMessage });
       
-      // Fallback to localStorage
+      // Fallback to localStorage - FIXED: Gunakan summaryData dan ingredientsData yang sudah dideklarasikan
       try {
-        const backupData = {
-          timestamp: new Date().toLocaleString('id-ID'),
-          recipe_name: recipeName.trim(),
-          recipe_category: recipeCategory,
-          summary: summaryData,
-          ingredients: ingredientsData,
-          error: error.message,
-          saved_locally: true
-        };
-        
-        const existing = JSON.parse(localStorage.getItem('hpp_backup') || '[]');
-        existing.unshift(backupData);
-        localStorage.setItem('hpp_backup', JSON.stringify(existing.slice(0, 10)));
-        
-        setSaveStatus(prev => ({
-          ...prev,
-          message: prev.message + ' (Saved locally as backup)'
-        }));
+        if (summaryData && ingredientsData) {
+          const backupData = {
+            timestamp: new Date().toLocaleString('id-ID'),
+            recipe_name: recipeName.trim(),
+            recipe_category: recipeCategory,
+            summary: summaryData,
+            ingredients: ingredientsData,
+            error: error.message,
+            saved_locally: true
+          };
+          
+          const existing = JSON.parse(localStorage.getItem('hpp_backup') || '[]');
+          existing.unshift(backupData);
+          localStorage.setItem('hpp_backup', JSON.stringify(existing.slice(0, 10)));
+          
+          setSaveStatus(prev => ({
+            ...prev,
+            message: prev.message + ' (Saved locally as backup)'
+          }));
+        }
       } catch (localError) {
         console.error('Local save also failed:', localError);
       }
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // ===== LOCAL CACHE =====
-  const saveToLocalCache = (summaryData, ingredientsData) => {
-    try {
-      const cacheData = {
-        ...summaryData,
-        ingredients: ingredientsData,
-        cached_at: new Date().toISOString()
-      };
-      
-      const existingCache = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
-      existingCache.unshift(cacheData);
-      localStorage.setItem('hpp_cache', JSON.stringify(existingCache.slice(0, 20)));
-      setRecipeHistory(existingCache.slice(0, 20));
-    } catch (error) {
-      console.error('Cache error:', error);
-    }
-  };
-
-  const loadFromCache = (recipe) => {
-    setRecipeName(recipe.recipe_name);
-    setRecipeCategory(recipe.recipe_category);
-    setBrand(recipe.brand);
-    setTargetCost(recipe.target_cost?.toString() || '');
-    setTargetPieces(recipe.target_pieces?.toString() || '');
-    setProfitMargin(recipe.profit_margin || 40);
-    setGoFoodPercentage(recipe.gofood_percentage || 20);
-    setTaxPercentage(recipe.tax_percentage || 10);
-    
-    setSaveStatus({ type: 'info', message: '📂 Recipe loaded. Re-enter ingredients.' });
-    setShowHistory(false);
   };
 
   // ===== AUTO CHECK CONNECTION =====
@@ -420,7 +428,7 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // ===== RENDER =====
+  // ===== RENDER - TAMBAHKAN KODE FORM YANG HILANG =====
   return (
     <div className="container mt-3">
       {/* Header */}
@@ -496,9 +504,577 @@ const App = () => {
         </div>
       </div>
 
-      {/* Main Content - SAMA DENGAN SEBELUMNYA */}
-      {/* ... (kode form tetap sama) ... */}
-      
+      {/* Main Content */}
+      <div className="row">
+        {/* Left Column - Form */}
+        <div className="col-lg-7">
+          {/* Recipe Info Card */}
+          <div className="card shadow-sm mb-4">
+            <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+              <h5 className="mb-0">📝 Data Resep</h5>
+              <div>
+                <button 
+                  className="btn btn-light btn-sm me-2" 
+                  onClick={resetAllData}
+                  disabled={isLoading}
+                >
+                  🔄 Reset
+                </button>
+              </div>
+            </div>
+            <div className="card-body">
+              <div className="row mb-3">
+                <div className="col-md-6">
+                  <label className="form-label">
+                    <i className="bi bi-journal-text me-2"></i>Nama Resep *
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={recipeName}
+                    onChange={(e) => setRecipeName(e.target.value)}
+                    placeholder="Contoh: Carrot Cake Premium"
+                    disabled={isLoading}
+                    required
+                  />
+                  <small className="text-muted">Wajib diisi untuk menyimpan</small>
+                </div>
+                <div className="col-md-6">
+                  <label className="form-label">
+                    <i className="bi bi-tags me-2"></i>Kategori
+                  </label>
+                  <select
+                    className="form-select"
+                    value={recipeCategory}
+                    onChange={(e) => setRecipeCategory(e.target.value)}
+                    disabled={isLoading}
+                  >
+                    <option value="Cake">Cake</option>
+                    <option value="Pastry">Pastry</option>
+                    <option value="Bread">Roti</option>
+                    <option value="Cookies">Cookies</option>
+                    <option value="Dessert">Dessert</option>
+                    <option value="Beverage">Minuman</option>
+                    <option value="Main Course">Main Course</option>
+                    <option value="Other">Lainnya</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="row">
+                <div className="col-md-6 mb-3">
+                  <label className="form-label">
+                    <i className="bi bi-shop me-2"></i>Nama Produk / Brand
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                    placeholder="Contoh: Carrot Cake Delight"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="col-md-3 mb-3">
+                  <label className="form-label">
+                    <i className="bi bi-bullseye me-2"></i>Target Biaya
+                  </label>
+                  <div className="input-group">
+                    <span className="input-group-text">Rp</span>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={targetCost}
+                      onChange={(e) => setTargetCost(e.target.value)}
+                      placeholder="Target"
+                      min="0"
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
+                <div className="col-md-3 mb-3">
+                  <label className="form-label">
+                    <i className="bi bi-box-seam me-2"></i>Jumlah Produksi
+                  </label>
+                  <div className="input-group">
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={targetPieces}
+                      onChange={(e) => setTargetPieces(e.target.value)}
+                      placeholder="Jumlah"
+                      min="1"
+                      disabled={isLoading}
+                    />
+                    <span className="input-group-text">pcs</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Ingredients Card */}
+          <div className="card shadow-sm mb-4">
+            <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
+              <h5 className="mb-0">🥕 Bahan Baku ({ingredients.length})</h5>
+              <button 
+                className="btn btn-light btn-sm" 
+                onClick={addIngredient}
+                disabled={isLoading}
+              >
+                <i className="bi bi-plus-circle me-1"></i>Tambah
+              </button>
+            </div>
+            <div className="card-body">
+              {ingredients.map((ingredient, index) => (
+                <div key={ingredient.id} className="ingredient-card mb-3 p-3 border rounded">
+                  <div className="d-flex justify-content-between align-items-center mb-2">
+                    <h6 className="mb-0">
+                      <span className="badge bg-secondary me-2">{index + 1}</span>
+                      {ingredient.name || 'Bahan Baru'}
+                    </h6>
+                    {ingredients.length > 1 && (
+                      <button 
+                        className="btn btn-outline-danger btn-sm"
+                        onClick={() => removeIngredient(ingredient.id)}
+                        disabled={isLoading}
+                        title="Hapus bahan"
+                      >
+                        <i className="bi bi-trash"></i>
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="row g-2">
+                    <div className="col-md-4">
+                      <label className="form-label small">Nama Bahan *</label>
+                      <input
+                        type="text"
+                        className="form-control form-control-sm"
+                        value={ingredient.name}
+                        onChange={(e) => updateIngredient(ingredient.id, 'name', e.target.value)}
+                        placeholder="Contoh: Tepung Terigu"
+                        disabled={isLoading}
+                        required
+                      />
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label small">Jumlah Pakai *</label>
+                      <div className="input-group input-group-sm">
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={ingredient.usage}
+                          onChange={(e) => updateIngredient(ingredient.id, 'usage', e.target.value)}
+                          placeholder="360"
+                          step="0.01"
+                          min="0"
+                          disabled={isLoading}
+                          required
+                        />
+                        <select
+                          className="form-select"
+                          style={{ width: '80px' }}
+                          value={ingredient.unit}
+                          onChange={(e) => updateIngredient(ingredient.id, 'unit', e.target.value)}
+                          disabled={isLoading}
+                        >
+                          <option value="gr">gr</option>
+                          <option value="ml">ml</option>
+                          <option value="kg">kg</option>
+                          <option value="pcs">pcs</option>
+                          <option value="sdm">sdm</option>
+                          <option value="sdt">sdt</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label small">Harga Beli *</label>
+                      <div className="input-group input-group-sm">
+                        <span className="input-group-text">Rp</span>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={ingredient.purchasePrice}
+                          onChange={(e) => updateIngredient(ingredient.id, 'purchasePrice', e.target.value)}
+                          placeholder="25000"
+                          step="100"
+                          min="0"
+                          disabled={isLoading}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="col-md-2">
+                      <label className="form-label small">Satuan Beli *</label>
+                      <input
+                        type="number"
+                        className="form-control form-control-sm"
+                        value={ingredient.purchaseUnit}
+                        onChange={(e) => updateIngredient(ingredient.id, 'purchaseUnit', e.target.value)}
+                        placeholder="1000"
+                        step="0.01"
+                        min="0.01"
+                        disabled={isLoading}
+                        required
+                      />
+                      <small className="text-muted">dalam {ingredient.unit}</small>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-2">
+                    <small className="text-success">
+                      <i className="bi bi-calculator me-1"></i>
+                      Biaya bahan ini: <strong>{formatRupiah(calculateIngredientCost(ingredient))}</strong>
+                    </small>
+                  </div>
+                </div>
+              ))}
+              
+              <div className="mt-3">
+                <small className="text-muted">
+                  <i className="bi bi-info-circle me-1"></i>
+                  Total semua bahan: <strong>{formatRupiah(calculateTotalMaterialCost())}</strong>
+                </small>
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Costs */}
+          <div className="card shadow-sm mb-4">
+            <div className="card-header bg-warning">
+              <h5 className="mb-0">📦 Biaya Tambahan</h5>
+            </div>
+            <div className="card-body">
+              <div className="row">
+                <div className="col-md-6 mb-3">
+                  <label className="form-label">
+                    <i className="bi bi-box me-2"></i>Biaya Packaging
+                  </label>
+                  <div className="input-group">
+                    <span className="input-group-text">Rp</span>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={consumable.cost}
+                      onChange={(e) => setConsumable({...consumable, cost: e.target.value})}
+                      placeholder="5000"
+                      min="0"
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <small className="text-muted">Untuk semua unit produksi</small>
+                </div>
+                <div className="col-md-6 mb-3">
+                  <label className="form-label">
+                    <i className="bi bi-cash-coin me-2"></i>Margin Profit (%)
+                  </label>
+                  <div className="input-group">
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={profitMargin}
+                      onChange={(e) => setProfitMargin(e.target.value)}
+                      placeholder="40"
+                      min="0"
+                      max="100"
+                      disabled={isLoading}
+                    />
+                    <span className="input-group-text">%</span>
+                  </div>
+                  <small className="text-muted">Persentase laba yang diinginkan</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column - Results & Actions */}
+        <div className="col-lg-5">
+          {/* Summary Card */}
+          <div className="card shadow-sm mb-4">
+            <div className="card-header bg-info text-white">
+              <h5 className="mb-0">📊 Ringkasan Biaya</h5>
+            </div>
+            <div className="card-body">
+              <div className="summary-item mb-3">
+                <div className="d-flex justify-content-between mb-1">
+                  <span>Total Biaya Bahan:</span>
+                  <span className="fw-bold">{formatRupiah(calculateTotalMaterialCost())}</span>
+                </div>
+                <div className="progress mb-2" style={{height: '8px'}}>
+                  <div 
+                    className="progress-bar bg-success" 
+                    style={{ 
+                      width: `${Math.min(100, (calculateTotalMaterialCost() / (calculateTotalProductionCost() || 1)) * 100)}%` 
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="summary-item mb-3">
+                <div className="d-flex justify-content-between mb-1">
+                  <span>Biaya Packaging:</span>
+                  <span className="fw-bold">{formatRupiah(parseFloat(consumable.cost) || 0)}</span>
+                </div>
+                <div className="progress mb-2" style={{height: '8px'}}>
+                  <div 
+                    className="progress-bar bg-warning" 
+                    style={{ 
+                      width: `${Math.min(100, ((parseFloat(consumable.cost) || 0) / (calculateTotalProductionCost() || 1)) * 100)}%` 
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="summary-item mb-3">
+                <div className="d-flex justify-content-between mb-1">
+                  <span>Total Biaya Produksi:</span>
+                  <span className="fw-bold text-primary">{formatRupiah(calculateTotalProductionCost())}</span>
+                </div>
+                <div className="progress mb-2" style={{height: '8px'}}>
+                  <div 
+                    className="progress-bar bg-primary" 
+                    style={{ width: '100%' }}
+                  ></div>
+                </div>
+              </div>
+
+              <hr />
+
+              <div className="result-box p-3 bg-light rounded mb-3">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <h6 className="mb-0">HPP per Unit:</h6>
+                  <h4 className="mb-0 text-success">{formatRupiah(calculateHPPPerPiece())}</h4>
+                </div>
+                <small className="text-muted">
+                  Untuk {targetPieces || 1} unit produksi
+                </small>
+              </div>
+
+              {targetCost && (
+                <div className="result-box p-3 bg-light rounded">
+                  <div className="d-flex justify-content-between align-items-center mb-2">
+                    <h6 className="mb-0">Selisih Target:</h6>
+                    <h5 className="mb-0" style={{
+                      color: (parseFloat(targetCost) || 0) >= calculateHPPPerPiece() ? 'green' : 'red'
+                    }}>
+                      {formatRupiah((parseFloat(targetCost) || 0) - calculateHPPPerPiece())}
+                    </h5>
+                  </div>
+                  <small className="text-muted">
+                    {(parseFloat(targetCost) || 0) >= calculateHPPPerPiece() 
+                      ? '✅ Menguntungkan' 
+                      : '⚠️ Perlu penyesuaian'}
+                  </small>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Price Calculator */}
+          <div className="card shadow-sm mb-4">
+            <div className="card-header bg-purple text-white">
+              <h5 className="mb-0">💰 Kalkulator Harga Jual</h5>
+            </div>
+            <div className="card-body">
+              <div className="row mb-3">
+                <div className="col-md-6">
+                  <label className="form-label small">Biaya Platform (%)</label>
+                  <div className="input-group input-group-sm mb-2">
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={goFoodPercentage}
+                      onChange={(e) => setGoFoodPercentage(e.target.value)}
+                      placeholder="20"
+                      min="0"
+                      max="100"
+                      disabled={isLoading}
+                    />
+                    <span className="input-group-text">%</span>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <label className="form-label small">Pajak (%)</label>
+                  <div className="input-group input-group-sm mb-2">
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={taxPercentage}
+                      onChange={(e) => setTaxPercentage(e.target.value)}
+                      placeholder="10"
+                      min="0"
+                      max="100"
+                      disabled={isLoading}
+                    />
+                    <span className="input-group-text">%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="price-results">
+                <div className="price-item mb-2 p-2 bg-light rounded">
+                  <div className="d-flex justify-content-between">
+                    <span>Harga Dine In:</span>
+                    <span className="fw-bold">{formatRupiah(calculateDineInPrice())}</span>
+                  </div>
+                  <small className="text-muted">Margin: {profitMargin}%</small>
+                </div>
+                
+                <div className="price-item mb-2 p-2 bg-light rounded">
+                  <div className="d-flex justify-content-between">
+                    <span>+ Biaya Platform ({goFoodPercentage}%):</span>
+                    <span className="text-warning">+ {formatRupiah(calculateGoFoodCost())}</span>
+                  </div>
+                </div>
+                
+                <div className="price-item mb-2 p-2 bg-light rounded">
+                  <div className="d-flex justify-content-between">
+                    <span>+ Pajak ({taxPercentage}%):</span>
+                    <span className="text-warning">+ {formatRupiah(calculateRestaurantTax())}</span>
+                  </div>
+                </div>
+                
+                <div className="price-item p-2 bg-success text-white rounded mt-3">
+                  <div className="d-flex justify-content-between">
+                    <span><strong>HARGA GOFOOD:</strong></span>
+                    <span><strong>{formatRupiah(calculateGoFoodPrice())}</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 row">
+                <div className="col-md-6">
+                  <small className="text-muted">
+                    <i className="bi bi-graph-up me-1"></i>
+                    Laba: {formatRupiah(calculateGrossProfit())}
+                  </small>
+                </div>
+                <div className="col-md-6 text-end">
+                  <small className="text-muted">
+                    Margin: {profitMargin}%
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Save Card */}
+          <div className="card shadow-sm">
+            <div className="card-header bg-success text-white">
+              <h5 className="mb-0">💾 Simpan ke Google Sheets</h5>
+            </div>
+            <div className="card-body">
+              <div className="mb-3">
+                <h6>Langkah Penyimpanan:</h6>
+                <ol className="small">
+                  <li>Isi semua data dengan lengkap</li>
+                  <li>Pastikan koneksi internet stabil</li>
+                  <li>Klik tombol "Simpan ke Google Sheets"</li>
+                  <li>Data akan otomatis masuk spreadsheet</li>
+                </ol>
+              </div>
+              
+              <div className="alert alert-info small">
+                <strong><i className="bi bi-google me-1"></i>Google Sheets Setup:</strong>
+                <p className="mb-0 mt-1">URL sudah terkonfigurasi. Data akan masuk ke spreadsheet yang sudah ditentukan.</p>
+              </div>
+              
+              <div className="d-grid gap-2">
+                <button 
+                  className="btn btn-success btn-lg" 
+                  onClick={saveToGoogleSheets}
+                  disabled={isLoading || !recipeName.trim() || connectionStatus !== 'connected'}
+                >
+                  {isLoading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Menyimpan...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-google me-2"></i>
+                      Simpan ke Google Sheets
+                    </>
+                  )}
+                </button>
+                
+                <button 
+                  className="btn btn-outline-primary"
+                  onClick={() => setShowHistory(!showHistory)}
+                  disabled={isLoading}
+                >
+                  <i className="bi bi-clock-history me-2"></i>
+                  {showHistory ? 'Sembunyikan' : 'Lihat'} History ({recipeHistory.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* History Modal */}
+      {showHistory && (
+        <div className="modal show d-block" tabIndex="-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">📜 History Resep Tersimpan</h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowHistory(false)}></button>
+              </div>
+              <div className="modal-body">
+                {recipeHistory.length > 0 ? (
+                  <div className="table-responsive">
+                    <table className="table table-hover">
+                      <thead>
+                        <tr>
+                          <th>Tanggal</th>
+                          <th>Nama Resep</th>
+                          <th>Kategori</th>
+                          <th>HPP</th>
+                          <th>Harga Jual</th>
+                          <th>Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recipeHistory.map((recipe, index) => (
+                          <tr key={index}>
+                            <td><small>{recipe.timestamp}</small></td>
+                            <td><strong>{recipe.recipe_name}</strong></td>
+                            <td><span className="badge bg-info">{recipe.recipe_category}</span></td>
+                            <td>{formatRupiah(recipe.hpp_per_piece || 0)}</td>
+                            <td>{formatRupiah(recipe.gofood_price || 0)}</td>
+                            <td>
+                              <button 
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => loadFromCache(recipe)}
+                              >
+                                Load
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <i className="bi bi-inbox" style={{fontSize: '3rem', color: '#ccc'}}></i>
+                    <p className="text-muted mt-3">Belum ada data tersimpan</p>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowHistory(false)}>
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <footer className="mt-4 mb-3 text-center">
         <div className="row">
