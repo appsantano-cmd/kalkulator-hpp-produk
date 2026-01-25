@@ -3,7 +3,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 
 // PRODUCTION URL - Ganti dengan URL deploy terbaru Anda
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwV8G0FdySbIByd7Pgki6DiEJefjOAPF0zjZ1lMPvSqeGJ5MccBuf9cZKcTB23znbU8pw/exec';
+const GOOGLE_SCRIPT_URL = '{"success":true,"message":"HPP Calculator API v2.0","endpoints":{"POST":["/test_connection","/save_recipe","/ping"],"GET":["/"]},"status":"online","timestamp":"2026-01-25T07:01:59.865Z","spreadsheetId":"1rXi2ovd4HQABZkcJLJIg5I0NQosJ9AVoP8VtLDLLB5A"}';
 
 const App = () => {
   // States
