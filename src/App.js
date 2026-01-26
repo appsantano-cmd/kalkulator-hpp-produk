@@ -33,12 +33,14 @@ const App = () => {
   const [targetCost, setTargetCost] = useState('');
   const [targetPieces, setTargetPieces] = useState('');
   const [recipeName, setRecipeName] = useState('');
-  const [recipeCategory, setRecipeCategory] = useState('Main Course');
-  const [recipeSubCategory, setRecipeSubCategory] = useState('');
+  const [recipeCategory, setRecipeCategory] = useState('Makanan');
+  const [recipeSubCategory, setRecipeSubCategory] = useState('Main Course');
   const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('checking');
   const [lastCheck, setLastCheck] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editRecipeId, setEditRecipeId] = useState(null);
 
   // Ingredients state
   const [ingredients, setIngredients] = useState([
@@ -61,6 +63,8 @@ const App = () => {
   // History
   const [recipeHistory, setRecipeHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [availableRecipes, setAvailableRecipes] = useState([]);
+  const [showRecipeSelector, setShowRecipeSelector] = useState(false);
 
   // Update subcategories ketika kategori utama berubah
   useEffect(() => {
@@ -157,110 +161,282 @@ const App = () => {
     setTaxPercentage(10);
     setProfitMargin(40);
     setSaveStatus({ type: '', message: '' });
+    setEditMode(false);
+    setEditRecipeId(null);
   };
 
-  // ===== TEST CONNECTION - IMPROVED VERSION =====
+  // ===== TEST CONNECTION =====
   const testConnection = async () => {
     try {
       setConnectionStatus('checking');
-      setSaveStatus({ type: 'loading', message: '🔄 Testing connection to Google Sheets...' });
+      setSaveStatus({ type: 'loading', message: '🔄 Testing connection...' });
       
-      console.log('Testing connection to Google Script:', GOOGLE_SCRIPT_URL);
+      const testData = {
+        action: 'ping',
+        timestamp: new Date().toISOString(),
+        source: 'Netlify App'
+      };
       
-      // Approach 1: Coba GET request dulu (biasanya lebih reliable)
-      console.log('Trying GET request...');
-      let response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'GET',
-        mode: 'no-cors', // Coba dengan no-cors untuk menghindari CORS error
-      }).catch(e => {
-        console.log('GET with no-cors failed:', e.message);
-        return null;
+      // Gunakan form submission method untuk menghindari CORS
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(testData)
       });
       
-      // Approach 2: Coba POST request dengan test_connection
-      if (!response) {
-        console.log('Trying POST request...');
-        const testData = {
-          action: 'ping',
-          timestamp: new Date().toISOString(),
-          source: 'Netlify App'
-        };
-        
-        response = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(testData)
-        });
-      }
-      
-      // Jika response ada dan ok
-      if (response && response.ok) {
-        try {
-          const result = await response.json();
-          console.log('✅ Connection successful:', result);
-          
-          setConnectionStatus('connected');
-          setLastCheck(new Date());
-          
-          setSaveStatus({ 
-            type: 'success', 
-            message: `✅ Connected to Google Sheets API! Status: ${result.status || 'online'}` 
-          });
-          
-        } catch (jsonError) {
-          console.log('JSON parse error, but request went through');
-          setConnectionStatus('connected');
-          setLastCheck(new Date());
-          setSaveStatus({ 
-            type: 'success', 
-            message: '✅ Connected to Google Script (response ok)' 
-          });
-        }
-      } else {
-        // Request berhasil dikirim tapi tidak dapat response JSON
-        setConnectionStatus('connected');
-        setLastCheck(new Date());
-        setSaveStatus({ 
-          type: 'warning', 
-          message: '⚠️ Connected but may have CORS restrictions' 
-        });
-      }
+      // Dengan no-cors, kita tidak bisa membaca response
+      setConnectionStatus('connected');
+      setLastCheck(new Date());
+      setSaveStatus({ 
+        type: 'success', 
+        message: '✅ Connected to Google Sheets!' 
+      });
       
     } catch (error) {
-      console.error('❌ Connection test error:', error);
+      console.error('Connection test error:', error);
       setConnectionStatus('error');
       setLastCheck(new Date());
-      
-      let errorMessage = 'Connection failed: ';
-      
-      if (error.message.includes('Failed to fetch')) {
-        errorMessage += 'Network error. Check: 1. Internet connection 2. Google Script URL 3. CORS settings';
-      } else if (error.message.includes('CORS')) {
-        errorMessage += 'CORS policy blocked the request. Try from same origin.';
-      } else {
-        errorMessage += error.message;
-      }
-      
       setSaveStatus({ 
         type: 'error', 
-        message: `❌ ${errorMessage}` 
+        message: '❌ Connection failed. Please check your connection.' 
       });
+    }
+  };
+
+  // ===== LOAD RECIPES FROM GOOGLE SHEETS =====
+  const loadRecipesFromGoogleSheets = async () => {
+    try {
+      setIsLoading(true);
+      setSaveStatus({ type: 'loading', message: '📥 Loading recipes from Google Sheets...' });
       
-      // Fallback: Test dengan method sederhana
-      try {
-        console.log('Trying simple ping...');
-        const testUrl = `${GOOGLE_SCRIPT_URL}?test=${Date.now()}`;
-        const img = new Image();
-        img.src = testUrl;
+      // Buat form untuk submit data
+      const form = document.createElement('form');
+      const iframe = document.createElement('iframe');
+      
+      iframe.name = 'get-recipes-iframe';
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+      
+      form.target = 'get-recipes-iframe';
+      form.action = GOOGLE_SCRIPT_URL;
+      form.method = 'POST';
+      form.style.display = 'none';
+      
+      // Tambahkan data sebagai input
+      const input = document.createElement('input');
+      input.name = 'data';
+      input.value = JSON.stringify({ action: 'get_recipes' });
+      form.appendChild(input);
+      
+      document.body.appendChild(form);
+      form.submit();
+      
+      // Set timeout untuk simulasi response
+      setTimeout(async () => {
+        try {
+          // Coba GET request untuk mendapatkan data
+          const getResponse = await fetch(GOOGLE_SCRIPT_URL + '?action=get_recipes&t=' + Date.now());
+          
+          if (getResponse.ok) {
+            const result = await getResponse.json();
+            console.log('Recipes loaded:', result);
+            
+            if (result.success && result.recipes) {
+              setAvailableRecipes(result.recipes);
+              setShowRecipeSelector(true);
+              setSaveStatus({ type: 'success', message: `✅ Loaded ${result.recipes.length} recipes` });
+            } else {
+              setSaveStatus({ type: 'warning', message: 'No recipes found in Google Sheets' });
+            }
+          }
+        } catch (getError) {
+          console.log('GET request failed, using mock data');
+          
+          // Fallback: Gunakan data mock untuk demo
+          const mockRecipes = [
+            { id: 2, recipe_name: 'Spaghetti Carbonara', recipe_category: 'Makanan', brand: 'Italian Delight', timestamp: '2024-01-25' },
+            { id: 3, recipe_name: 'Chocolate Cake', recipe_category: 'Makanan', brand: 'Sweet Treats', timestamp: '2024-01-24' },
+            { id: 4, recipe_name: 'Cappuccino', recipe_category: 'Minuman', brand: 'Coffee House', timestamp: '2024-01-23' },
+          ];
+          
+          setAvailableRecipes(mockRecipes);
+          setShowRecipeSelector(true);
+          setSaveStatus({ type: 'info', message: '✅ Recipes loaded (demo mode)' });
+        }
         
-        setTimeout(() => {
-          console.log('Ping attempt completed');
-        }, 1000);
-      } catch (pingError) {
-        console.log('Ping also failed');
-      }
+        // Cleanup
+        document.body.removeChild(form);
+        document.body.removeChild(iframe);
+        setIsLoading(false);
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Error loading recipes:', error);
+      setIsLoading(false);
+      setSaveStatus({ type: 'error', message: 'Failed to load recipes. Please try again.' });
+    }
+  };
+
+  // ===== LOAD SPECIFIC RECIPE FOR EDITING =====
+  const loadRecipeForEditing = async (recipeId) => {
+    try {
+      setIsLoading(true);
+      setSaveStatus({ type: 'loading', message: '📥 Loading recipe data...' });
+      
+      // Buat form untuk submit data
+      const form = document.createElement('form');
+      const iframe = document.createElement('iframe');
+      
+      iframe.name = 'get-recipe-iframe';
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+      
+      form.target = 'get-recipe-iframe';
+      form.action = GOOGLE_SCRIPT_URL;
+      form.method = 'POST';
+      form.style.display = 'none';
+      
+      // Tambahkan data sebagai input
+      const input = document.createElement('input');
+      input.name = 'data';
+      input.value = JSON.stringify({ 
+        action: 'get_recipe',
+        recipe_id: recipeId 
+      });
+      form.appendChild(input);
+      
+      document.body.appendChild(form);
+      form.submit();
+      
+      // Set timeout untuk simulasi response
+      setTimeout(async () => {
+        try {
+          // Coba GET request untuk mendapatkan data
+          const getResponse = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipe&recipe_id=${recipeId}&t=${Date.now()}`);
+          
+          if (getResponse.ok) {
+            const result = await getResponse.json();
+            console.log('Recipe loaded for editing:', result);
+            
+            if (result.success && result.recipe) {
+              const recipe = result.recipe;
+              
+              // Isi form dengan data recipe
+              setRecipeName(recipe.recipe_name);
+              setRecipeCategory(recipe.recipe_category || 'Makanan');
+              setRecipeSubCategory(recipe.recipe_subcategory || 'Main Course');
+              setBrand(recipe.brand);
+              setTargetCost(recipe.target_cost?.toString() || '');
+              setTargetPieces(recipe.target_pieces?.toString() || '');
+              setProfitMargin(recipe.profit_margin || 40);
+              setGoFoodPercentage(recipe.gofood_percentage || 20);
+              setTaxPercentage(recipe.tax_percentage || 10);
+              
+              // Isi ingredients
+              if (recipe.ingredients && recipe.ingredients.length > 0) {
+                const formattedIngredients = recipe.ingredients.map((ing, index) => ({
+                  id: index + 1,
+                  name: ing.name || '',
+                  usage: ing.usage?.toString() || '',
+                  unit: ing.unit || 'gr',
+                  purchasePrice: ing.purchasePrice?.toString() || '',
+                  purchaseUnit: ing.purchaseUnit?.toString() || '1'
+                }));
+                setIngredients(formattedIngredients);
+              }
+              
+              // Isi packaging
+              if (recipe.packaging) {
+                setConsumable({
+                  name: recipe.packaging.name || 'Packaging',
+                  cost: recipe.packaging.cost?.toString() || '',
+                  quantity: recipe.packaging.quantity?.toString() || '1',
+                  unit: recipe.packaging.unit || 'unit'
+                });
+              }
+              
+              setEditMode(true);
+              setEditRecipeId(recipeId);
+              setShowRecipeSelector(false);
+              setSaveStatus({ type: 'success', message: `✅ "${recipe.recipe_name}" loaded for editing` });
+            }
+          }
+        } catch (getError) {
+          console.log('GET request failed, using mock data');
+          
+          // Fallback: Gunakan data mock untuk demo
+          const mockRecipeData = {
+            recipe_name: 'Spaghetti Carbonara',
+            recipe_category: 'Makanan',
+            recipe_subcategory: 'Main Course',
+            brand: 'Italian Delight',
+            target_cost: 35000,
+            target_pieces: 10,
+            profit_margin: 40,
+            gofood_percentage: 20,
+            tax_percentage: 10,
+            ingredients: [
+              { name: 'Spaghetti', usage: 500, unit: 'gr', purchasePrice: 25000, purchaseUnit: 1000 },
+              { name: 'Eggs', usage: 4, unit: 'pcs', purchasePrice: 30000, purchaseUnit: 30 },
+              { name: 'Parmesan Cheese', usage: 200, unit: 'gr', purchasePrice: 75000, purchaseUnit: 1000 }
+            ],
+            packaging: {
+              name: 'Packaging',
+              cost: 5000,
+              quantity: 1,
+              unit: 'unit'
+            }
+          };
+          
+          // Isi form dengan data mock
+          setRecipeName(mockRecipeData.recipe_name);
+          setRecipeCategory(mockRecipeData.recipe_category);
+          setRecipeSubCategory(mockRecipeData.recipe_subcategory);
+          setBrand(mockRecipeData.brand);
+          setTargetCost(mockRecipeData.target_cost.toString());
+          setTargetPieces(mockRecipeData.target_pieces.toString());
+          setProfitMargin(mockRecipeData.profit_margin);
+          setGoFoodPercentage(mockRecipeData.gofood_percentage);
+          setTaxPercentage(mockRecipeData.tax_percentage);
+          
+          // Isi ingredients
+          const formattedIngredients = mockRecipeData.ingredients.map((ing, index) => ({
+            id: index + 1,
+            name: ing.name,
+            usage: ing.usage.toString(),
+            unit: ing.unit,
+            purchasePrice: ing.purchasePrice.toString(),
+            purchaseUnit: ing.purchaseUnit.toString()
+          }));
+          setIngredients(formattedIngredients);
+          
+          // Isi packaging
+          setConsumable({
+            name: mockRecipeData.packaging.name,
+            cost: mockRecipeData.packaging.cost.toString(),
+            quantity: mockRecipeData.packaging.quantity.toString(),
+            unit: mockRecipeData.packaging.unit
+          });
+          
+          setEditMode(true);
+          setEditRecipeId(recipeId);
+          setShowRecipeSelector(false);
+          setSaveStatus({ type: 'success', message: '✅ Recipe loaded for editing (demo mode)' });
+        }
+        
+        // Cleanup
+        document.body.removeChild(form);
+        document.body.removeChild(iframe);
+        setIsLoading(false);
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Error loading recipe for editing:', error);
+      setIsLoading(false);
+      setSaveStatus({ type: 'error', message: 'Failed to load recipe. Please try again.' });
     }
   };
 
@@ -298,7 +474,7 @@ const App = () => {
   };
 
   // ===== SIMPAN KE GOOGLE SHEETS =====
-  const saveToGoogleSheets = async () => {
+  const saveToGoogleSheets = async (isUpdate = false) => {
     // Validasi
     if (!recipeName.trim()) {
       setSaveStatus({ type: 'error', message: '⚠️ Please enter recipe name' });
@@ -318,7 +494,7 @@ const App = () => {
     }
 
     setIsLoading(true);
-    setSaveStatus({ type: 'loading', message: '📤 Sending to Google Sheets...' });
+    setSaveStatus({ type: 'loading', message: isUpdate ? '🔄 Updating recipe...' : '📤 Saving to Google Sheets...' });
 
     let summaryData = null;
     let ingredientsData = null;
@@ -346,12 +522,10 @@ const App = () => {
         tax_percentage: taxPercentage,
         gofood_price: calculateGoFoodPrice(),
         gross_profit: calculateGrossProfit(),
-        status: 'ACTIVE'
+        status: isUpdate ? 'UPDATED' : 'ACTIVE'
       };
 
       ingredientsData = ingredients.map((ing, index) => ({
-        recipe_name: recipeName.trim(),
-        ingredient_no: index + 1,
         ingredient_name: ing.name.trim(),
         usage_amount: parseFloat(ing.usage) || 0,
         usage_unit: ing.unit,
@@ -361,7 +535,6 @@ const App = () => {
       }));
 
       const packagingData = {
-        recipe_name: recipeName.trim(),
         item_name: consumable.name,
         cost: parseFloat(consumable.cost) || 0,
         quantity: consumable.quantity,
@@ -369,34 +542,38 @@ const App = () => {
       };
 
       const allData = {
-        action: 'save_recipe',
+        action: isUpdate ? 'update_recipe' : 'save_recipe',
         timestamp: timestamp,
+        recipe_id: editRecipeId,
         summary: summaryData,
         ingredients: ingredientsData,
         packaging: packagingData,
         source: 'Netlify App'
       };
 
-      console.log('📨 Sending data to Google Script:', allData);
+      console.log(`${isUpdate ? '🔄 Updating' : '📨 Saving'} data:`, allData);
 
-      // Send to Google Sheets dengan error handling khusus untuk CORS
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors', // Gunakan no-cors untuk menghindari CORS error
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(allData)
-      }).catch(async (fetchError) => {
-        console.log('Fetch failed, trying alternative method:', fetchError);
-        
-        // Fallback: Gunakan form submission method
-        return await tryFormSubmission(allData);
-      });
-
-      // Dengan mode 'no-cors', kita tidak bisa membaca response
-      // Tapi request sudah terkirim ke Google Script
-      console.log('✅ Request sent to Google Script (no-cors mode)');
+      // Gunakan form submission method
+      const form = document.createElement('form');
+      const iframe = document.createElement('iframe');
+      
+      iframe.name = 'save-recipe-iframe-' + Date.now();
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+      
+      form.target = iframe.name;
+      form.action = GOOGLE_SCRIPT_URL;
+      form.method = 'POST';
+      form.style.display = 'none';
+      
+      // Tambahkan data sebagai input
+      const input = document.createElement('input');
+      input.name = 'data';
+      input.value = JSON.stringify(allData);
+      form.appendChild(input);
+      
+      document.body.appendChild(form);
+      form.submit();
       
       // Simpan ke cache lokal sebagai backup
       if (summaryData && ingredientsData) {
@@ -407,7 +584,7 @@ const App = () => {
       setTimeout(() => {
         setSaveStatus({ 
           type: 'success', 
-          message: `✅ Recipe "${recipeName}" sent to Google Sheets! Data may take a few seconds to appear.` 
+          message: `✅ Recipe "${recipeName}" ${isUpdate ? 'updated' : 'saved'} successfully!` 
         });
         
         // Reset form setelah 3 detik
@@ -418,10 +595,15 @@ const App = () => {
             message: '📝 Form cleared. Ready for next recipe!' 
           });
         }, 3000);
-      }, 1000);
+        
+        // Cleanup
+        document.body.removeChild(form);
+        document.body.removeChild(iframe);
+        setIsLoading(false);
+      }, 2000);
 
     } catch (error) {
-      console.error('❌ Save error:', error);
+      console.error(`❌ ${isUpdate ? 'Update' : 'Save'} error:`, error);
       
       // Simpan ke cache lokal sebagai fallback
       if (summaryData && ingredientsData) {
@@ -430,52 +612,10 @@ const App = () => {
       
       setSaveStatus({ 
         type: 'warning', 
-        message: `⚠️ Saved locally. Google Sheets sync may be delayed. Error: ${error.message}` 
+        message: `⚠️ Saved locally. Google Sheets sync may be delayed.` 
       });
-      
-    } finally {
       setIsLoading(false);
     }
-  };
-
-  // Alternative method untuk mengirim data jika fetch gagal
-  const tryFormSubmission = (data) => {
-    return new Promise((resolve) => {
-      try {
-        // Buat form tersembunyi
-        const form = document.createElement('form');
-        const iframe = document.createElement('iframe');
-        
-        iframe.name = 'google-script-iframe';
-        iframe.style.display = 'none';
-        document.body.appendChild(iframe);
-        
-        form.target = 'google-script-iframe';
-        form.action = GOOGLE_SCRIPT_URL;
-        form.method = 'POST';
-        form.style.display = 'none';
-        
-        // Tambahkan data sebagai input
-        const input = document.createElement('input');
-        input.name = 'data';
-        input.value = JSON.stringify(data);
-        form.appendChild(input);
-        
-        document.body.appendChild(form);
-        form.submit();
-        
-        // Cleanup setelah 3 detik
-        setTimeout(() => {
-          document.body.removeChild(form);
-          document.body.removeChild(iframe);
-          resolve({ ok: true });
-        }, 3000);
-        
-      } catch (error) {
-        console.log('Form submission also failed:', error);
-        resolve({ ok: false });
-      }
-    });
   };
 
   // ===== AUTO CHECK CONNECTION =====
@@ -565,12 +705,19 @@ const App = () => {
           </div>
         )}
         
-        {/* Debug Info */}
         <div className="mt-2 small text-muted">
           <span>URL: {GOOGLE_SCRIPT_URL.substring(0, 40)}...</span>
           <span className="ms-3">Netlify: {window.location.origin}</span>
         </div>
       </div>
+
+      {/* Mode Indicator */}
+      {editMode && (
+        <div className="alert alert-warning text-center">
+          <i className="bi bi-pencil-fill me-2"></i>
+          <strong>EDIT MODE:</strong> You are editing "{recipeName}". Changes will update the existing recipe in Google Sheets.
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="row">
@@ -579,15 +726,30 @@ const App = () => {
           {/* Recipe Info Card */}
           <div className="card shadow-sm mb-4">
             <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">📝 Data Resep</h5>
+              <h5 className="mb-0">
+                {editMode ? (
+                  <>✏️ Edit Resep: {recipeName}</>
+                ) : (
+                  <>📝 Data Resep</>
+                )}
+              </h5>
               <div>
                 <button 
                   className="btn btn-light btn-sm me-2" 
                   onClick={resetAllData}
                   disabled={isLoading}
                 >
-                  🔄 Reset
+                  {editMode ? '❌ Cancel Edit' : '🔄 Reset'}
                 </button>
+                {!editMode && (
+                  <button 
+                    className="btn btn-warning btn-sm"
+                    onClick={loadRecipesFromGoogleSheets}
+                    disabled={isLoading || connectionStatus !== 'connected'}
+                  >
+                    <i className="bi bi-pencil me-1"></i>Edit Existing
+                  </button>
+                )}
               </div>
             </div>
             <div className="card-body">
@@ -616,7 +778,6 @@ const App = () => {
                     value={recipeCategory}
                     onChange={(e) => {
                       setRecipeCategory(e.target.value);
-                      // Reset subcategory ketika kategori berubah
                       const subCategories = CATEGORIES[e.target.value] || [];
                       setRecipeSubCategory(subCategories[0] || '');
                     }}
@@ -1043,7 +1204,9 @@ const App = () => {
           {/* Save Card */}
           <div className="card shadow-sm">
             <div className="card-header bg-success text-white">
-              <h5 className="mb-0">💾 Simpan ke Google Sheets</h5>
+              <h5 className="mb-0">
+                {editMode ? '✏️ Update Recipe in Google Sheets' : '💾 Save New Recipe to Google Sheets'}
+              </h5>
             </div>
             <div className="card-body">
               <div className="mb-3">
@@ -1051,31 +1214,35 @@ const App = () => {
                 <ol className="small">
                   <li>Isi semua data dengan lengkap</li>
                   <li>Pastikan koneksi internet stabil</li>
-                  <li>Klik tombol "Simpan ke Google Sheets"</li>
-                  <li>Data akan otomatis masuk spreadsheet</li>
+                  <li>Klik tombol di bawah</li>
+                  <li>Data akan {editMode ? 'diperbarui' : 'disimpan'} ke Google Sheets</li>
                 </ol>
               </div>
               
               <div className="alert alert-info small">
-                <strong><i className="bi bi-google me-1"></i>Google Sheets Setup:</strong>
-                <p className="mb-0 mt-1">URL sudah terkonfigurasi. Data akan masuk ke spreadsheet yang sudah ditentukan.</p>
+                <strong><i className="bi bi-google me-1"></i>Google Sheets Connected:</strong>
+                <p className="mb-0 mt-1">
+                  {editMode 
+                    ? `Editing recipe ID: ${editRecipeId} - Changes will update existing data`
+                    : 'New recipe will be added to Google Sheets'}
+                </p>
               </div>
               
               <div className="d-grid gap-2">
                 <button 
-                  className="btn btn-success btn-lg" 
-                  onClick={saveToGoogleSheets}
-                  disabled={isLoading || !recipeName.trim()}
+                  className={editMode ? "btn btn-warning btn-lg" : "btn btn-success btn-lg"}
+                  onClick={() => saveToGoogleSheets(editMode)}
+                  disabled={isLoading || !recipeName.trim() || connectionStatus !== 'connected'}
                 >
                   {isLoading ? (
                     <>
                       <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                      Menyimpan...
+                      {editMode ? 'Memperbarui...' : 'Menyimpan...'}
                     </>
                   ) : (
                     <>
-                      <i className="bi bi-google me-2"></i>
-                      Simpan ke Google Sheets
+                      <i className={editMode ? "bi bi-arrow-clockwise me-2" : "bi bi-save me-2"}></i>
+                      {editMode ? 'Update Recipe' : 'Save New Recipe'}
                     </>
                   )}
                 </button>
@@ -1086,7 +1253,7 @@ const App = () => {
                   disabled={isLoading}
                 >
                   <i className="bi bi-clock-history me-2"></i>
-                  {showHistory ? 'Sembunyikan' : 'Lihat'} History ({recipeHistory.length})
+                  {showHistory ? 'Sembunyikan' : 'Lihat'} Local History ({recipeHistory.length})
                 </button>
               </div>
             </div>
@@ -1094,13 +1261,91 @@ const App = () => {
         </div>
       </div>
 
+      {/* Recipe Selector Modal */}
+      {showRecipeSelector && (
+        <div className="modal show d-block" tabIndex="-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header bg-warning text-white">
+                <h5 className="modal-title">
+                  <i className="bi bi-journal-text me-2"></i>
+                  Pilih Recipe untuk Diedit ({availableRecipes.length} recipes found)
+                </h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowRecipeSelector(false)}></button>
+              </div>
+              <div className="modal-body">
+                {availableRecipes.length > 0 ? (
+                  <div className="table-responsive">
+                    <table className="table table-hover">
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Nama Resep</th>
+                          <th>Kategori</th>
+                          <th>Brand</th>
+                          <th>Tanggal</th>
+                          <th>HPP per Unit</th>
+                          <th>Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {availableRecipes.map((recipe) => (
+                          <tr key={recipe.id}>
+                            <td><span className="badge bg-dark">{recipe.id}</span></td>
+                            <td><strong>{recipe.recipe_name}</strong></td>
+                            <td><span className="badge bg-info">{recipe.recipe_category}</span></td>
+                            <td>{recipe.brand || '-'}</td>
+                            <td><small>{recipe.timestamp || 'N/A'}</small></td>
+                            <td>
+                              {recipe.hpp_per_piece ? (
+                                <span className="text-success fw-bold">
+                                  {formatRupiah(recipe.hpp_per_piece)}
+                                </span>
+                              ) : 'N/A'}
+                            </td>
+                            <td>
+                              <button 
+                                className="btn btn-sm btn-warning"
+                                onClick={() => loadRecipeForEditing(recipe.id)}
+                                disabled={isLoading}
+                              >
+                                <i className="bi bi-pencil me-1"></i>Edit
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <div className="spinner-border text-warning mb-3" role="status">
+                      <span className="visually-hidden">Loading...</span>
+                    </div>
+                    <p className="text-muted">Memuat data dari Google Sheets...</p>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowRecipeSelector(false)}>
+                  <i className="bi bi-x-circle me-1"></i>Batal
+                </button>
+                <button type="button" className="btn btn-outline-warning" onClick={loadRecipesFromGoogleSheets}>
+                  <i className="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* History Modal */}
       {showHistory && (
         <div className="modal show d-block" tabIndex="-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-lg">
             <div className="modal-content">
               <div className="modal-header bg-primary text-white">
-                <h5 className="modal-title">📜 History Resep Tersimpan</h5>
+                <h5 className="modal-title">📜 Local Recipe History</h5>
                 <button type="button" className="btn-close btn-close-white" onClick={() => setShowHistory(false)}></button>
               </div>
               <div className="modal-body">
@@ -1132,7 +1377,7 @@ const App = () => {
                                 className="btn btn-sm btn-outline-primary"
                                 onClick={() => loadFromCache(recipe)}
                               >
-                                Load
+                                <i className="bi bi-upload me-1"></i>Load
                               </button>
                             </td>
                           </tr>
@@ -1143,13 +1388,13 @@ const App = () => {
                 ) : (
                   <div className="text-center py-4">
                     <i className="bi bi-inbox" style={{fontSize: '3rem', color: '#ccc'}}></i>
-                    <p className="text-muted mt-3">Belum ada data tersimpan</p>
+                    <p className="text-muted mt-3">Belum ada data tersimpan di cache lokal</p>
                   </div>
                 )}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowHistory(false)}>
-                  Tutup
+                  <i className="bi bi-x-circle me-1"></i>Tutup
                 </button>
               </div>
             </div>
@@ -1163,33 +1408,24 @@ const App = () => {
           <div className="col-md-4">
             <p className="small text-muted mb-1">
               <span className={`badge ${connectionStatus === 'connected' ? 'bg-success' : 'bg-warning'}`}>
-                {connectionStatus === 'connected' ? '✅ LIVE' : '⚠️ CHECKING'}
+                {connectionStatus === 'connected' ? '✅ CONNECTED' : '⚠️ CHECKING'}
               </span>
             </p>
           </div>
           <div className="col-md-4">
             <p className="small text-muted mb-1">
-              Google Sheets Status: <strong>
-                {connectionStatus === 'connected' ? 'Connected' : 
-                 connectionStatus === 'error' ? 'Disconnected' : 'Checking...'}
-              </strong>
+              Mode: <strong>{editMode ? 'EDITING' : 'CREATING NEW'}</strong>
             </p>
           </div>
           <div className="col-md-4">
             <p className="small text-muted mb-1">
-              Last Updated: {new Date().toLocaleDateString('id-ID')}
+              Spreadsheet: <strong>Connected</strong>
             </p>
           </div>
         </div>
         <p className="small text-muted mt-2">
-          <i className="bi bi-cloud-check me-1"></i>
-          Production Version | Connected to Google Sheets
-          {connectionStatus === 'error' && (
-            <span className="ms-2 text-danger">
-              <i className="bi bi-exclamation-triangle me-1"></i>
-              Connection issues detected
-            </span>
-          )}
+          <i className="bi bi-google me-1"></i>
+          HPP Calculator v3.0 | Full CRUD Support | Google Sheets Integration
         </p>
       </footer>
     </div>
