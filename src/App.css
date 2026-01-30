@@ -294,3 +294,66 @@ body {
 .alert {
   animation: fadeIn 0.3s ease-out;
 }
+
+/* App.css */
+.ingredient-card {
+  background: #f8f9fa;
+  transition: all 0.3s;
+}
+
+.ingredient-card:hover {
+  background: #e9ecef;
+  transform: translateY(-2px);
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #4CAF50;
+}
+
+.summary-item {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+}
+
+.summary-item:last-child {
+  border-bottom: none;
+}
+
+.result-box {
+  border-left: 4px solid #4CAF50;
+}
+
+.nav-tabs .nav-link.active {
+  background-color: #fff;
+  border-bottom-color: #fff;
+}
+
+.form-control:disabled, .form-select:disabled {
+  background-color: #f8f9fa;
+  cursor: not-allowed;
+}
+
+.alert {
+  border-radius: 8px;
+}
+
+.card {
+  border-radius: 10px;
+  border: 1px solid #e0e0e0;
+}
+
+.card-header {
+  border-radius: 10px 10px 0 0 !important;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+  font-weight: 600;
+}
+
+.input-group-text {
+  background-color: #f8f9fa;
+  border-color: #dee2e6;
+}

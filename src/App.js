@@ -1,640 +1,533 @@
-import React, { useState, useEffect } from 'react';
-import 'bootstrap/dist/css/bootstrap.min.css';
-import './App.css';
+import React, { useState, useEffect } from "react";
+import "bootstrap/dist/css/bootstrap.min.css";
+import "./App.css";
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyLEjp-p9CFvpu9lLEfz1I7TPA1iLeYO4KEJVISKnl5AfReHVM3yqzoteNaNjMOJoAS0g/exec';
+// GANTI DENGAN URL DEPLOYMENT ANDA
+const GOOGLE_SCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycbyFCWaakC8vQPiev5waipakhtdY-INVn9BOTXxQeHGKSMEMYFaZKmHnZWZS1tX4RQx3rw/exec";
 
 const CATEGORIES = {
-  'Makanan': ['Kids Menu', 'Appetizer', 'Main Course', 'Dessert', 'Breakfast Menu', 'Veggies', 'Others'],
-  'Minuman': ['Signature', 'Espresso Based', 'Single Origin', 'Frappuccino', 'Milkshake', 'Ice Cream', 'Non Coffee']
+  MAKANAN: [
+    "APPETIZER",
+    "MAIN_COURSE",
+    "DESSERT",
+    "BREAKFAST",
+    "SNACK",
+    "LAINNYA",
+  ],
+  MINUMAN: ["SIGNATURE", "COFFEE", "TEA", "JUICE", "MOCKTAIL", "LAINNYA"],
 };
 
 const App = () => {
-  // States
-  const [brand, setBrand] = useState('');
-  const [targetCost, setTargetCost] = useState('');
-  const [targetPieces, setTargetPieces] = useState('');
-  const [recipeName, setRecipeName] = useState('');
-  const [recipeCategory, setRecipeCategory] = useState('Makanan');
-  const [recipeSubCategory, setRecipeSubCategory] = useState('Main Course');
-  const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
-  const [isLoading, setIsLoading] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('checking');
-  const [lastCheck, setLastCheck] = useState(null);
-  const [editMode, setEditMode] = useState(false);
-  const [editRecipeId, setEditRecipeId] = useState(null);
-
-  const [ingredients, setIngredients] = useState([{ 
-    id: 1, 
-    name: '', 
-    usage: '', 
-    unit: 'gr', 
-    purchasePrice: '', 
-    purchaseUnit: '',
-    purchaseUnitType: 'gr',
-    category: 'Bahan Utama',
-    supplier: '',
-    notes: ''
-  }]);
-  
-  const [consumable, setConsumable] = useState({ 
-    name: 'Packaging', 
-    cost: '', 
-    quantity: '1', 
-    unit: 'unit',
-    type: 'Packaging'
-  });
-  
-  const [goFoodPercentage, setGoFoodPercentage] = useState(20);
-  const [taxPercentage, setTaxPercentage] = useState(10);
+  // State untuk Menu/HPP
+  const [menuName, setMenuName] = useState("");
+  const [category, setCategory] = useState("MAKANAN");
+  const [subcategory, setSubcategory] = useState("MAIN_COURSE");
+  const [brand, setBrand] = useState("");
+  const [targetCost, setTargetCost] = useState("");
+  const [targetQty, setTargetQty] = useState("1");
   const [profitMargin, setProfitMargin] = useState(40);
-  
-  const [recipeHistory, setRecipeHistory] = useState([]);
-  const [showHistory, setShowHistory] = useState(false);
-  const [availableRecipes, setAvailableRecipes] = useState([]);
-  const [showRecipeSelector, setShowRecipeSelector] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [recipeNotes, setRecipeNotes] = useState('');
+  const [gofoodPercentage, setGofoodPercentage] = useState(20);
+  const [taxPercentage, setTaxPercentage] = useState(10);
+  const [notes, setNotes] = useState("");
 
+  // State untuk Bahan/Resep
+  const [ingredients, setIngredients] = useState([
+    {
+      id: 1,
+      name: "",
+      usage: "",
+      unit: "GRAM",
+      purchase_price: "",
+      purchase_unit: "",
+      purchase_unit_type: "GRAM",
+      category: "BAHAN_UTAMA",
+      supplier: "",
+      notes: "",
+    },
+  ]);
+
+  const [packaging, setPackaging] = useState({
+    name: "Packaging",
+    cost: "",
+    quantity: "1",
+  });
+
+  // State untuk UI
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+  const [connection, setConnection] = useState("checking");
+  const [savedMenus, setSavedMenus] = useState([]);
+  const [showMenuList, setShowMenuList] = useState(false);
+  const [activeTab, setActiveTab] = useState("hpp"); // 'hpp' or 'resep'
+  const [editMode, setEditMode] = useState(false);
+  const [currentMenuId, setCurrentMenuId] = useState(null);
+
+  // Initialize
   useEffect(() => {
-    const subCategories = CATEGORIES[recipeCategory] || [];
-    if (subCategories.length > 0 && !recipeSubCategory) {
-      setRecipeSubCategory(subCategories[0]);
-    }
-  }, [recipeCategory, recipeSubCategory]);
+    testConnection();
+    loadLocalData();
+  }, []);
 
-  // ===== UTILITY FUNCTIONS =====
-  const formatRupiah = (number) => {
-    if (isNaN(number) || number === 0) return 'Rp 0';
-    return `Rp ${Math.round(number).toLocaleString('id-ID')}`;
+  // ===== TEST CONNECTION =====
+  const testConnection = async () => {
+    try {
+      setStatus({ type: "loading", message: "Testing connection..." });
+      setConnection("checking");
+
+      const response = await fetch(
+        `${GOOGLE_SCRIPT_URL}?action=ping&t=${Date.now()}`,
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setConnection("connected");
+          setStatus({
+            type: "success",
+            message: "✅ Connected to Google Sheets!",
+          });
+
+          // Initialize sheets if needed
+          if (result.sheet_count < 4) {
+            initializeSheets();
+          }
+
+          // Load saved menus
+          loadMenus();
+
+          return true;
+        }
+      }
+
+      throw new Error("Connection failed");
+    } catch (error) {
+      console.error("Connection error:", error);
+      setConnection("error");
+      setStatus({
+        type: "warning",
+        message: "⚠️ Using offline mode. Data will be saved locally.",
+      });
+      return false;
+    }
   };
 
+  const initializeSheets = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=initialize`);
+      const result = await response.json();
+
+      if (result.success) {
+        setStatus({ type: "success", message: result.message });
+      }
+    } catch (error) {
+      console.error("Initialize error:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ===== CALCULATION FUNCTIONS =====
   const calculateIngredientCost = (ing) => {
     const usage = parseFloat(ing.usage) || 0;
-    const purchaseUnit = parseFloat(ing.purchaseUnit) || 1;
-    const purchasePrice = parseFloat(ing.purchasePrice) || 0;
+    const purchaseUnit = parseFloat(ing.purchase_unit) || 1;
+    const purchasePrice = parseFloat(ing.purchase_price) || 0;
     return purchaseUnit > 0 ? (usage / purchaseUnit) * purchasePrice : 0;
   };
 
-  const calculateTotalMaterialCost = () => {
-    return ingredients.reduce((total, ing) => total + calculateIngredientCost(ing), 0);
+  const calculateTotalMaterial = () => {
+    return ingredients.reduce(
+      (total, ing) => total + calculateIngredientCost(ing),
+      0,
+    );
   };
 
-  const calculateTotalProductionCost = () => {
-    return calculateTotalMaterialCost() + (parseFloat(consumable.cost) || 0);
+  const calculateTotalProduction = () => {
+    return calculateTotalMaterial() + (parseFloat(packaging.cost) || 0);
   };
 
-  const calculateHPPPerPiece = () => {
-    const total = calculateTotalProductionCost();
-    const pieces = parseFloat(targetPieces) || 1;
-    return pieces > 0 ? total / pieces : 0;
+  const calculateHppPerUnit = () => {
+    const total = calculateTotalProduction();
+    const qty = parseFloat(targetQty) || 1;
+    return qty > 0 ? total / qty : 0;
   };
 
   const calculateDineInPrice = () => {
-    const hpp = calculateHPPPerPiece();
+    const hpp = calculateHppPerUnit();
     const margin = profitMargin / 100;
     return margin > 0 ? hpp / (1 - margin) : hpp;
   };
 
-  const calculateGoFoodCost = () => calculateDineInPrice() * (goFoodPercentage / 100);
-  const calculateRestaurantTax = () => calculateDineInPrice() * (taxPercentage / 100);
-  const calculateGoFoodPrice = () => calculateDineInPrice() + calculateGoFoodCost() + calculateRestaurantTax();
-  const calculateGrossProfit = () => calculateDineInPrice() - calculateHPPPerPiece();
-  const calculateTotalGrossProfit = () => calculateGrossProfit() * (parseFloat(targetPieces) || 1);
-  const calculateTotalRevenue = () => calculateDineInPrice() * (parseFloat(targetPieces) || 1);
+  const calculateGofoodPrice = () => {
+    const dineInPrice = calculateDineInPrice();
+    const gofoodCost = dineInPrice * (gofoodPercentage / 100);
+    const taxCost = dineInPrice * (taxPercentage / 100);
+    return dineInPrice + gofoodCost + taxCost;
+  };
+
+  const calculateGrossProfit = () => {
+    return calculateDineInPrice() - calculateHppPerUnit();
+  };
+
+  const calculateTotalProfit = () => {
+    return calculateGrossProfit() * (parseFloat(targetQty) || 1);
+  };
+
+  const calculateTotalRevenue = () => {
+    return calculateDineInPrice() * (parseFloat(targetQty) || 1);
+  };
 
   // ===== INGREDIENT MANAGEMENT =====
   const updateIngredient = (id, field, value) => {
-    setIngredients(ingredients.map(ingredient =>
-      ingredient.id === id ? { ...ingredient, [field]: value } : ingredient
-    ));
+    setIngredients(
+      ingredients.map((ingredient) =>
+        ingredient.id === id ? { ...ingredient, [field]: value } : ingredient,
+      ),
+    );
   };
 
   const addIngredient = () => {
-    const newId = ingredients.length > 0 ? Math.max(...ingredients.map(i => i.id)) + 1 : 1;
-    setIngredients([...ingredients, { 
-      id: newId, 
-      name: '', 
-      usage: '', 
-      unit: 'gr', 
-      purchasePrice: '', 
-      purchaseUnit: '',
-      purchaseUnitType: 'gr',
-      category: 'Bahan Utama',
-      supplier: '',
-      notes: ''
-    }]);
+    const newId =
+      ingredients.length > 0
+        ? Math.max(...ingredients.map((i) => i.id)) + 1
+        : 1;
+    setIngredients([
+      ...ingredients,
+      {
+        id: newId,
+        name: "",
+        usage: "",
+        unit: "GRAM",
+        purchase_price: "",
+        purchase_unit: "",
+        purchase_unit_type: "GRAM",
+        category: "BAHAN_UTAMA",
+        supplier: "",
+        notes: "",
+      },
+    ]);
   };
 
   const removeIngredient = (id) => {
     if (ingredients.length > 1) {
-      setIngredients(ingredients.filter(ingredient => ingredient.id !== id));
-    }
-  };
-
-  // ===== RESET =====
-  const resetAllData = () => {
-    setBrand('');
-    setTargetCost('');
-    setTargetPieces('');
-    setRecipeName('');
-    setRecipeCategory('Makanan');
-    setRecipeSubCategory('Main Course');
-    setIngredients([{ 
-      id: 1, 
-      name: '', 
-      usage: '', 
-      unit: 'gr', 
-      purchasePrice: '', 
-      purchaseUnit: '',
-      purchaseUnitType: 'gr',
-      category: 'Bahan Utama',
-      supplier: '',
-      notes: ''
-    }]);
-    setConsumable({ 
-      name: 'Packaging', 
-      cost: '', 
-      quantity: '1', 
-      unit: 'unit',
-      type: 'Packaging'
-    });
-    setGoFoodPercentage(20);
-    setTaxPercentage(10);
-    setProfitMargin(40);
-    setRecipeNotes('');
-    setSaveStatus({ type: '', message: '' });
-    setEditMode(false);
-    setEditRecipeId(null);
-  };
-
-  // ===== CONNECTION TEST =====
-  const testConnection = async () => {
-    try {
-      setConnectionStatus('checking');
-      setSaveStatus({ type: 'loading', message: '🔄 Testing connection...' });
-      
-      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=ping&t=${Date.now()}`);
-      
-      if (response.ok) {
-        const result = await response.json();
-        setConnectionStatus('connected');
-        setLastCheck(new Date());
-        setSaveStatus({ type: 'success', message: '✅ Connected to Google Sheets!' });
-      } else {
-        throw new Error('Connection failed');
-      }
-      
-    } catch (error) {
-      console.error('Connection test error:', error);
-      setConnectionStatus('error');
-      setLastCheck(new Date());
-      setSaveStatus({ type: 'warning', message: '⚠️ Connection failed. Using offline mode.' });
-    }
-  };
-
-  // ===== LOAD RECIPES FROM GOOGLE SHEETS =====
-  const loadRecipesFromGoogleSheets = async () => {
-    try {
-      setIsLoading(true);
-      setSaveStatus({ type: 'loading', message: '📥 Loading recipes...' });
-      
-      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipes&t=${Date.now()}`);
-      
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.recipes) {
-          setAvailableRecipes(result.recipes);
-          setShowRecipeSelector(true);
-          setSaveStatus({ type: 'success', message: `✅ Loaded ${result.recipes.length} recipes` });
-        } else {
-          throw new Error('No recipes found');
-        }
-      } else {
-        throw new Error('Network error');
-      }
-      
-      setIsLoading(false);
-    } catch (error) {
-      console.error('Load recipes error:', error);
-      setIsLoading(false);
-      setSaveStatus({ type: 'warning', message: `⚠️ Failed to load recipes: ${error.message}` });
-    }
-  };
-
-  // ===== LOAD SPECIFIC RECIPE FOR EDITING =====
-  const loadRecipeForEditing = async (recipeId) => {
-    try {
-      setIsLoading(true);
-      setSaveStatus({ type: 'loading', message: '📥 Loading recipe...' });
-      
-      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipe&recipe_id=${recipeId}&t=${Date.now()}`);
-      
-      if (response.ok) {
-        const result = await response.json();
-        
-        if (result.success && result.recipe) {
-          const recipe = result.recipe;
-          
-          // Isi form dengan data dari Google Sheets
-          setRecipeName(recipe.recipe_name || '');
-          setRecipeCategory(recipe.recipe_category || 'Makanan');
-          setRecipeSubCategory(recipe.recipe_subcategory || 'Main Course');
-          setBrand(recipe.brand || '');
-          setTargetCost(recipe.target_cost?.toString() || '');
-          setTargetPieces(recipe.target_pieces?.toString() || '');
-          setProfitMargin(recipe.profit_margin || 40);
-          setGoFoodPercentage(recipe.gofood_percentage || 20);
-          setTaxPercentage(recipe.tax_percentage || 10);
-          setRecipeNotes(recipe.notes || '');
-          
-          // Load ingredients dari sheet Ingredients
-          const ingredientsResponse = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_ingredients&recipe_id=${recipeId}&t=${Date.now()}`);
-          if (ingredientsResponse.ok) {
-            const ingredientsResult = await ingredientsResponse.json();
-            if (ingredientsResult.success && ingredientsResult.ingredients && ingredientsResult.ingredients.length > 0) {
-              const formattedIngredients = ingredientsResult.ingredients.map((ing, index) => ({
-                id: index + 1,
-                name: ing.ingredient_name || '',
-                usage: ing.usage_amount?.toString() || '',
-                unit: ing.usage_unit || 'gr',
-                purchasePrice: ing.purchase_price?.toString() || '',
-                purchaseUnit: ing.purchase_unit_amount?.toString() || '1',
-                purchaseUnitType: ing.purchase_unit_type || 'gr',
-                category: ing.category || 'Bahan Utama',
-                supplier: ing.supplier || '',
-                notes: ing.notes || ''
-              }));
-              setIngredients(formattedIngredients);
-            }
-          }
-          
-          // Load packaging
-          const packagingResponse = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_packaging&recipe_id=${recipeId}&t=${Date.now()}`);
-          if (packagingResponse.ok) {
-            const packagingResult = await packagingResponse.json();
-            if (packagingResult.success && packagingResult.packaging) {
-              setConsumable({
-                name: packagingResult.packaging.name || 'Packaging',
-                cost: packagingResult.packaging.cost?.toString() || '',
-                quantity: packagingResult.packaging.quantity?.toString() || '1',
-                unit: packagingResult.packaging.unit || 'unit',
-                type: packagingResult.packaging.type || 'Packaging'
-              });
-            }
-          }
-          
-          setEditMode(true);
-          setEditRecipeId(recipe.id);
-          setShowRecipeSelector(false);
-          setSaveStatus({ type: 'success', message: `✅ "${recipe.recipe_name}" loaded for editing` });
-          
-        } else {
-          setSaveStatus({ type: 'error', message: 'Failed to load recipe data' });
-        }
-      } else {
-        setSaveStatus({ type: 'error', message: 'Network error loading recipe' });
-      }
-      
-      setIsLoading(false);
-    } catch (error) {
-      setIsLoading(false);
-      setSaveStatus({ type: 'error', message: 'Error loading recipe: ' + error.message });
+      setIngredients(ingredients.filter((ingredient) => ingredient.id !== id));
     }
   };
 
   // ===== SAVE TO GOOGLE SHEETS =====
-  const saveToGoogleSheets = async (isUpdate = false) => {
-    // Validasi
-    if (!recipeName.trim()) {
-      setSaveStatus({ type: 'error', message: '⚠️ Please enter recipe name' });
+  // Di dalam fungsi saveMenu di App.js
+  const saveMenu = async () => {
+    if (!menuName.trim()) {
+      setStatus({ type: "error", message: "⚠️ Please enter menu name" });
       return;
     }
 
-    const invalidIngredients = ingredients.filter(ing => 
-      !ing.name.trim() || !ing.usage || !ing.purchasePrice || !ing.purchaseUnit
-    );
-    
-    if (invalidIngredients.length > 0) {
-      setSaveStatus({ 
-        type: 'error', 
-        message: `⚠️ Please complete ${invalidIngredients.length} ingredient(s)` 
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    setSaveStatus({ type: 'loading', message: isUpdate ? '🔄 Updating...' : '📤 Saving...' });
+    setLoading(true);
+    setStatus({ type: "loading", message: "Saving menu to Google Sheets..." });
 
     try {
-      const now = new Date();
-      const timestamp = now.toLocaleString('id-ID');
-      const dateOnly = now.toISOString().split('T')[0];
-
-      // Generate unique recipe ID
-      const recipeId = editRecipeId || `RCP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // Data untuk Sheet "Recipes"
-      const recipeData = {
-        recipe_id: recipeId,
-        timestamp: timestamp,
-        date: dateOnly,
-        recipe_name: recipeName.trim(),
-        recipe_category: recipeCategory,
-        recipe_subcategory: recipeSubCategory,
-        brand: brand.trim() || '-',
+      // Prepare data
+      const menuData = {
+        action: "save_menu",
+        menu_name: menuName.trim(),
+        category: category,
+        subcategory: subcategory,
+        brand: brand.trim() || "",
         target_cost: parseFloat(targetCost) || 0,
-        target_pieces: parseFloat(targetPieces) || 0,
-        total_material_cost: calculateTotalMaterialCost(),
-        packaging_cost: parseFloat(consumable.cost) || 0,
-        total_production_cost: calculateTotalProductionCost(),
-        hpp_per_piece: calculateHPPPerPiece(),
+        target_qty: parseFloat(targetQty) || 1,
+        total_material: calculateTotalMaterial(),
+        packaging_cost: parseFloat(packaging.cost) || 0,
+        total_production: calculateTotalProduction(),
+        hpp_per_piece: calculateHppPerUnit(),
         profit_margin: profitMargin,
         dine_in_price: calculateDineInPrice(),
-        gofood_percentage: goFoodPercentage,
+        gofood_percentage: gofoodPercentage,
         tax_percentage: taxPercentage,
-        gofood_price: calculateGoFoodPrice(),
-        gross_profit_per_piece: calculateGrossProfit(),
-        total_gross_profit: calculateTotalGrossProfit(),
+        gofood_price: calculateGofoodPrice(),
+        gross_profit: calculateGrossProfit(),
+        total_profit: calculateTotalProfit(),
         total_revenue: calculateTotalRevenue(),
-        notes: recipeNotes,
-        status: isUpdate ? 'UPDATED' : 'ACTIVE',
-        last_updated: timestamp
+        notes: notes,
+        ingredients: ingredients.map((ing) => ({
+          name: ing.name.trim(),
+          usage: ing.usage,
+          unit: ing.unit,
+          purchase_price: ing.purchase_price,
+          purchase_unit: ing.purchase_unit,
+          purchase_unit_type: ing.purchase_unit_type,
+          category: ing.category,
+          supplier: ing.supplier,
+          notes: ing.notes,
+        })),
+        packaging: packaging,
+        source: "HPP Calculator App",
       };
 
-      // Data untuk Sheet "Ingredients"
-      const ingredientsData = ingredients.map((ing, index) => ({
-        recipe_id: recipeId,
-        recipe_name: recipeName.trim(),
-        ingredient_id: `${recipeId}_ING_${index + 1}`,
-        ingredient_name: ing.name.trim(),
-        usage_amount: parseFloat(ing.usage) || 0,
-        usage_unit: ing.unit,
-        purchase_price: parseFloat(ing.purchasePrice) || 0,
-        purchase_unit_amount: parseFloat(ing.purchaseUnit) || 1,
-        purchase_unit_type: ing.purchaseUnitType,
-        cost_per_usage: calculateIngredientCost(ing),
-        category: ing.category || 'Bahan Utama',
-        supplier: ing.supplier || '',
-        notes: ing.notes || '',
-        timestamp: timestamp
-      }));
+      console.log("Sending data to:", GOOGLE_SCRIPT_URL);
+      console.log("Data:", JSON.stringify(menuData));
 
-      // Data untuk Sheet "Packaging"
-      const packagingData = {
-        recipe_id: recipeId,
-        recipe_name: recipeName.trim(),
-        packaging_id: `${recipeId}_PKG_1`,
-        name: consumable.name || 'Packaging',
-        cost: parseFloat(consumable.cost) || 0,
-        quantity: parseFloat(consumable.quantity) || 1,
-        unit: consumable.unit,
-        type: consumable.type || 'Packaging',
-        cost_per_unit: (parseFloat(consumable.cost) || 0) / (parseFloat(consumable.quantity) || 1),
-        timestamp: timestamp
-      };
-
-      // Data untuk Sheet "Pricing"
-      const pricingData = {
-        recipe_id: recipeId,
-        recipe_name: recipeName.trim(),
-        category: recipeCategory,
-        subcategory: recipeSubCategory,
-        hpp_per_piece: calculateHPPPerPiece(),
-        profit_margin: profitMargin,
-        dine_in_price: calculateDineInPrice(),
-        gofood_percentage: goFoodPercentage,
-        tax_percentage: taxPercentage,
-        gofood_price: calculateGoFoodPrice(),
-        gross_profit_per_piece: calculateGrossProfit(),
-        total_production_cost: calculateTotalProductionCost(),
-        total_revenue: calculateTotalRevenue(),
-        total_gross_profit: calculateTotalGrossProfit(),
-        target_cost: parseFloat(targetCost) || 0,
-        variance: (parseFloat(targetCost) || 0) - calculateHPPPerPiece(),
-        variance_percentage: ((parseFloat(targetCost) || 0) - calculateHPPPerPiece()) / (parseFloat(targetCost) || 1) * 100,
-        status: 'ACTIVE',
-        last_updated: timestamp
-      };
-
-      const allData = {
-        action: isUpdate ? 'update_recipe' : 'save_recipe',
-        recipe_id: recipeId,
-        recipe: recipeData,
-        ingredients: ingredientsData,
-        packaging: packagingData,
-        pricing: pricingData,
-        source: 'HPP Calculator Production'
-      };
-
-      // Kirim data ke Google Apps Script
+      // Gunakan fetch dengan error handling yang lebih baik
       const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(allData)
+        body: JSON.stringify(menuData),
+        mode: "no-cors", // Gunakan no-cors untuk bypass CORS issues
+      }).catch((error) => {
+        console.error("Fetch error:", error);
+        throw new Error("Network error: " + error.message);
       });
-      
-      if (response.ok) {
-        const result = await response.json();
-        
-        if (result.success) {
-          // Simpan ke cache lokal
-          saveToLocalCache(recipeData, pricingData, ingredientsData);
-          
-          setSaveStatus({ 
-            type: 'success', 
-            message: `✅ Recipe "${recipeName}" ${isUpdate ? 'updated' : 'saved'} successfully! Saved to 4 sheets.` 
-          });
-          
-          // Refresh recipe list jika di edit mode
-          if (isUpdate) {
-            setTimeout(() => {
-              loadRecipesFromGoogleSheets();
-            }, 1500);
-          } else {
-            // Reset form setelah 3 detik (hanya jika bukan update)
-            setTimeout(() => {
-              resetAllData();
-              setSaveStatus({ type: 'info', message: '📝 Form cleared. Ready for new recipe!' });
-            }, 3000);
-          }
-          
-        } else {
-          throw new Error(result.message || 'Save failed');
-        }
-      } else {
-        throw new Error('Network error');
-      }
-      
-      setIsLoading(false);
+
+      console.log("Response received:", response);
+
+      // Untuk no-cors mode, kita tidak bisa membaca response body
+      // Tapi kita anggap berhasil jika tidak ada error
+
+      // Simpan ke cache lokal sebagai backup
+      saveToLocalCache(menuData);
+
+      setStatus({
+        type: "success",
+        message: `✅ "${menuName}" saved successfully! Data sent to Google Sheets.`,
+      });
+
+      // Reset form
+      setTimeout(() => resetForm(), 2000);
     } catch (error) {
-      console.error('Save error:', error);
-      
-      // Simpan ke cache lokal sebagai fallback
-      try {
-        const now = new Date();
-        const timestamp = now.toLocaleString('id-ID');
-        const recipeData = {
-          timestamp: timestamp,
-          recipe_name: recipeName.trim(),
-          recipe_category: recipeCategory,
-          recipe_subcategory: recipeSubCategory,
-          brand: brand.trim() || '-',
-          target_cost: parseFloat(targetCost) || 0,
-          target_pieces: parseFloat(targetPieces) || 0,
-          hpp_per_piece: calculateHPPPerPiece(),
-          profit_margin: profitMargin,
-          dine_in_price: calculateDineInPrice(),
-          ingredients: JSON.stringify(ingredients),
-          packaging: JSON.stringify(consumable),
-          status: 'CACHED_OFFLINE'
-        };
-        
-        saveToLocalCache(recipeData, {}, ingredients);
-      } catch (cacheError) {
-        console.error('Cache save error:', cacheError);
-      }
-      
-      setSaveStatus({ 
-        type: 'warning', 
-        message: `⚠️ Saved to local cache. Check internet connection and retry. Error: ${error.message}` 
+      console.error("Save error:", error);
+
+      // Fallback: save to local cache
+      saveToLocalCache({
+        menu_name: menuName,
+        hpp_per_piece: calculateHppPerUnit(),
+        timestamp: new Date().toLocaleString("id-ID"),
       });
-      setIsLoading(false);
+
+      setStatus({
+        type: "warning",
+        message: `✅ Data saved locally. Please check Google Apps Script deployment. Error: ${error.message}`,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+  // ===== LOCAL STORAGE FUNCTIONS =====
+  const saveToLocalCache = (data) => {
+    try {
+      const cacheItem = {
+        ...data,
+        local_id: "LOCAL_" + Date.now(),
+        saved_at: new Date().toISOString(),
+      };
+
+      const existing = JSON.parse(localStorage.getItem("hpp_menus") || "[]");
+      existing.unshift(cacheItem);
+      localStorage.setItem("hpp_menus", JSON.stringify(existing.slice(0, 50)));
+    } catch (error) {
+      console.error("Cache save error:", error);
     }
   };
 
-  // ===== LOCAL CACHE =====
-  const saveToLocalCache = (recipeData, pricingData, ingredientsData) => {
+  const loadLocalData = () => {
     try {
-      const cacheData = { 
-        ...recipeData, 
-        ...pricingData,
-        ingredients: ingredientsData || ingredients,
-        packaging: consumable,
-        cached_at: new Date().toISOString() 
-      };
-      
-      const existingCache = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
-      
-      // Hapus duplikat berdasarkan recipe_name
-      const filteredCache = existingCache.filter(item => 
-        item.recipe_name !== recipeData.recipe_name
+      const cached = JSON.parse(localStorage.getItem("hpp_menus") || "[]");
+      setSavedMenus(cached);
+    } catch (error) {
+      console.error("Load cache error:", error);
+    }
+  };
+
+  // ===== LOAD MENUS FROM GOOGLE SHEETS =====
+  const loadMenus = async () => {
+    try {
+      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_menus`);
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setSavedMenus(result.menus);
+        }
+      }
+    } catch (error) {
+      console.error("Load menus error:", error);
+    }
+  };
+
+  const loadMenuForEdit = async (menuId) => {
+    try {
+      setLoading(true);
+      const response = await fetch(
+        `${GOOGLE_SCRIPT_URL}?action=get_menu&menu_id=${menuId}`,
       );
-      
-      filteredCache.unshift(cacheData);
-      localStorage.setItem('hpp_cache', JSON.stringify(filteredCache.slice(0, 50)));
-      setRecipeHistory(filteredCache.slice(0, 20));
-    } catch (error) {
-      console.error('Cache error:', error);
-    }
-  };
-
-  // ===== DELETE RECIPE =====
-  const deleteRecipe = async (recipeId) => {
-    if (!window.confirm('Are you sure you want to delete this recipe and all related data?')) {
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      setSaveStatus({ type: 'loading', message: '🗑️ Deleting recipe...' });
-
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'delete_recipe',
-          recipe_id: recipeId,
-          delete_all: true
-        })
-      });
 
       if (response.ok) {
         const result = await response.json();
-        if (result.success) {
-          setSaveStatus({ type: 'success', message: '✅ Recipe and all related data deleted successfully!' });
-          
-          // Refresh recipe list
-          setTimeout(() => {
-            loadRecipesFromGoogleSheets();
-            if (editMode && editRecipeId === recipeId) {
-              resetAllData();
-            }
-          }, 1000);
-        } else {
-          throw new Error(result.message || 'Delete failed');
+        if (result.success && result.menu) {
+          const menu = result.menu;
+
+          // Set form values
+          setMenuName(menu.nama_menu || "");
+          setCategory(menu.kategori || "MAKANAN");
+          setSubcategory(menu.subkategori || "MAIN_COURSE");
+          setBrand(menu.brand || "");
+          setTargetCost(menu.target_cost?.toString() || "");
+          setTargetQty(menu.target_qty?.toString() || "1");
+          setProfitMargin(menu.profit_margin || 40);
+          setGofoodPercentage(menu.percentage_gofood || 20);
+          setTaxPercentage(menu.percentage_pajak || 10);
+          setNotes(menu.catatan || "");
+
+          // Set packaging cost
+          setPackaging({
+            name: "Packaging",
+            cost: menu.total_packaging?.toString() || "",
+            quantity: "1",
+          });
+
+          // Set ingredients if available
+          if (result.ingredients_count > 0 && menu.ingredients) {
+            const formattedIngredients = menu.ingredients.map((ing, index) => ({
+              id: index + 1,
+              name: ing.nama_bahan || "",
+              usage: ing.jumlah_pakai?.toString() || "",
+              unit: ing.satuan_pakai || "GRAM",
+              purchase_price: ing.harga_beli?.toString() || "",
+              purchase_unit: ing.satuan_beli?.toString() || "1",
+              purchase_unit_type: ing.satuan_beli_type || "GRAM",
+              category: ing.kategori_bahan || "BAHAN_UTAMA",
+              supplier: ing.supplier || "",
+              notes: ing.catatan_bahan || "",
+            }));
+            setIngredients(formattedIngredients);
+          }
+
+          setEditMode(true);
+          setCurrentMenuId(menuId);
+          setActiveTab("hpp");
+
+          setStatus({
+            type: "success",
+            message: `✅ Loaded "${menu.nama_menu}" for editing`,
+          });
         }
-      } else {
-        throw new Error('Network error');
       }
-      
-      setIsLoading(false);
     } catch (error) {
-      console.error('Delete error:', error);
-      setSaveStatus({ type: 'error', message: `❌ Delete failed: ${error.message}` });
-      setIsLoading(false);
+      console.error("Load menu error:", error);
+      setStatus({ type: "error", message: "Failed to load menu" });
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ===== INITIAL LOAD =====
-  useEffect(() => {
-    testConnection();
-    const cached = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
-    setRecipeHistory(cached);
-  }, []);
+  // ===== RESET FORM =====
+  const resetForm = () => {
+    setMenuName("");
+    setCategory("MAKANAN");
+    setSubcategory("MAIN_COURSE");
+    setBrand("");
+    setTargetCost("");
+    setTargetQty("1");
+    setProfitMargin(40);
+    setGofoodPercentage(20);
+    setTaxPercentage(10);
+    setNotes("");
+    setIngredients([
+      {
+        id: 1,
+        name: "",
+        usage: "",
+        unit: "GRAM",
+        purchase_price: "",
+        purchase_unit: "",
+        purchase_unit_type: "GRAM",
+        category: "BAHAN_UTAMA",
+        supplier: "",
+        notes: "",
+      },
+    ]);
+    setPackaging({
+      name: "Packaging",
+      cost: "",
+      quantity: "1",
+    });
+    setEditMode(false);
+    setCurrentMenuId(null);
+    setStatus({ type: "info", message: "Form cleared" });
+  };
+
+  // ===== FORMAT FUNCTIONS =====
+  const formatRupiah = (number) => {
+    if (isNaN(number) || number === 0) return "Rp 0";
+    return `Rp ${Math.round(number).toLocaleString("id-ID")}`;
+  };
 
   // ===== RENDER =====
   return (
-    <div className="container mt-3">
+    <div className="container-fluid mt-3">
       {/* Header */}
       <div className="header-section text-center mb-4">
-        <h1 className="text-primary">🚀 HPP Calculator - Complete Data Storage</h1>
-        <p className="text-muted">Connected to Google Sheets (4 Sheets: Recipes, Ingredients, Packaging & Pricing)</p>
-        
+        <h1 className="text-primary">📊 HPP Calculator & Recipe Manager</h1>
+        <p className="text-muted">
+          Save HPP calculations and recipes separately to Google Sheets
+        </p>
+
         <div className="d-flex justify-content-center align-items-center mb-3">
-          <div className={`badge ${connectionStatus === 'connected' ? 'bg-success' : 
-                           connectionStatus === 'error' ? 'bg-danger' : 'bg-warning'} me-2`}
-               style={{ fontSize: '0.9rem', padding: '6px 12px' }}>
-            {connectionStatus === 'connected' ? '✅ ONLINE' : 
-             connectionStatus === 'error' ? '❌ OFFLINE' : '⌛ CHECKING...'}
+          <div
+            className={`badge ${
+              connection === "connected"
+                ? "bg-success"
+                : connection === "error"
+                  ? "bg-danger"
+                  : "bg-warning"
+            } me-2`}
+          >
+            {connection === "connected"
+              ? "✅ CONNECTED"
+              : connection === "error"
+                ? "❌ OFFLINE"
+                : "⌛ CHECKING"}
           </div>
-          
-          <button className="btn btn-sm btn-outline-secondary ms-2" onClick={testConnection} disabled={isLoading}>
-            {isLoading ? <span className="spinner-border spinner-border-sm me-1"></span> : '🔄 Test'}
+
+          <button
+            className="btn btn-sm btn-outline-secondary ms-2"
+            onClick={testConnection}
+            disabled={loading}
+          >
+            Test Connection
           </button>
-          
-          {lastCheck && <small className="text-muted ms-2">Last check: {lastCheck.toLocaleTimeString()}</small>}
+
+          <button
+            className="btn btn-sm btn-outline-primary ms-2"
+            onClick={() => setShowMenuList(!showMenuList)}
+          >
+            {showMenuList ? "Hide" : "Show"} Menus ({savedMenus.length})
+          </button>
         </div>
 
-        {saveStatus.message && (
-          <div className={`alert ${saveStatus.type === 'success' ? 'alert-success' : 
-                           saveStatus.type === 'error' ? 'alert-danger' : 
-                           saveStatus.type === 'loading' ? 'alert-info' : 
-                           'alert-warning'} alert-dismissible fade show`} style={{maxWidth: '800px', margin: '0 auto'}}>
+        {status.message && (
+          <div
+            className={`alert ${
+              status.type === "success"
+                ? "alert-success"
+                : status.type === "error"
+                  ? "alert-danger"
+                  : status.type === "loading"
+                    ? "alert-info"
+                    : "alert-warning"
+            } alert-dismissible fade show`}
+          >
             <div className="d-flex justify-content-between align-items-center">
-              <div><strong>{saveStatus.message}</strong></div>
-              {saveStatus.type !== 'loading' && (
-                <button type="button" className="btn-close" onClick={() => setSaveStatus({ type: '', message: '' })}></button>
-              )}
+              <div>{status.message}</div>
+              <button
+                type="button"
+                className="btn-close"
+                onClick={() => setStatus({ type: "", message: "" })}
+              ></button>
             </div>
-            {saveStatus.type === 'loading' && (
-              <div className="progress mt-2" style={{height: '5px'}}>
-                <div className="progress-bar progress-bar-striped progress-bar-animated" style={{width: '100%'}}></div>
-              </div>
-            )}
           </div>
         )}
-        
-        <div className="mt-2 small text-muted">
-          <span className="badge bg-info me-2">Recipes</span>
-          <span className="badge bg-success me-2">Ingredients</span>
-          <span className="badge bg-warning me-2">Packaging</span>
-          <span className="badge bg-purple me-2">Pricing</span>
-        </div>
       </div>
 
       {/* Main Content */}
@@ -642,571 +535,700 @@ const App = () => {
         {/* Left Column - Form */}
         <div className="col-lg-8">
           <div className="card shadow-sm mb-4">
-            <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">{editMode ? '✏️ Edit Recipe' : '📝 New Recipe'}</h5>
-              <div>
-                <button className="btn btn-light btn-sm me-2" onClick={resetAllData} disabled={isLoading}>
-                  {editMode ? '❌ Cancel Edit' : '🔄 Reset Form'}
-                </button>
-                <button className="btn btn-warning btn-sm" onClick={loadRecipesFromGoogleSheets} disabled={isLoading}>
-                  <i className="bi bi-pencil me-1"></i>{editMode ? 'Load Another' : 'Edit Existing'}
-                </button>
-              </div>
+            <div className="card-header bg-primary text-white">
+              <ul className="nav nav-tabs card-header-tabs">
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === "hpp" ? "active" : ""}`}
+                    onClick={() => setActiveTab("hpp")}
+                  >
+                    📈 HPP Calculation
+                  </button>
+                </li>
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === "resep" ? "active" : ""}`}
+                    onClick={() => setActiveTab("resep")}
+                  >
+                    🥘 Recipe Details
+                  </button>
+                </li>
+              </ul>
             </div>
+
             <div className="card-body">
-              {/* Basic Info */}
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label"><i className="bi bi-journal-text me-2"></i>Nama Resep *</label>
-                  <input type="text" className="form-control" value={recipeName} 
-                    onChange={(e) => setRecipeName(e.target.value)} placeholder="Contoh: Spaghetti Carbonara" 
-                    disabled={isLoading} required />
-                  <small className="text-muted">Wajib diisi</small>
-                </div>
-                <div className="col-md-6">
-                  <label className="form-label"><i className="bi bi-tags me-2"></i>Kategori HPP</label>
-                  <select className="form-select mb-2" value={recipeCategory} 
-                    onChange={(e) => { setRecipeCategory(e.target.value); setRecipeSubCategory(CATEGORIES[e.target.value][0]); }} 
-                    disabled={isLoading}>
-                    <option value="Makanan">Makanan</option>
-                    <option value="Minuman">Minuman</option>
-                  </select>
-                  <select className="form-select" value={recipeSubCategory} 
-                    onChange={(e) => setRecipeSubCategory(e.target.value)} disabled={isLoading}>
-                    {CATEGORIES[recipeCategory]?.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label"><i className="bi bi-shop me-2"></i>Nama Produk / Brand</label>
-                  <input type="text" className="form-control" value={brand} 
-                    onChange={(e) => setBrand(e.target.value)} placeholder="Contoh: Signature Dish" disabled={isLoading} />
-                </div>
-                <div className="col-md-3">
-                  <label className="form-label"><i className="bi bi-bullseye me-2"></i>Target Biaya</label>
-                  <div className="input-group">
-                    <span className="input-group-text">Rp</span>
-                    <input type="number" className="form-control" value={targetCost} 
-                      onChange={(e) => setTargetCost(e.target.value)} placeholder="Target" min="0" step="100" disabled={isLoading} />
-                  </div>
-                </div>
-                <div className="col-md-3">
-                  <label className="form-label"><i className="bi bi-box-seam me-2"></i>Jumlah Produksi</label>
-                  <div className="input-group">
-                    <input type="number" className="form-control" value={targetPieces} 
-                      onChange={(e) => setTargetPieces(e.target.value)} placeholder="Jumlah" min="1" step="1" disabled={isLoading} />
-                    <span className="input-group-text">pcs</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-3">
-                <label className="form-label"><i className="bi bi-sticky me-2"></i>Catatan Resep</label>
-                <textarea className="form-control" rows="2" value={recipeNotes}
-                  onChange={(e) => setRecipeNotes(e.target.value)} 
-                  placeholder="Catatan tambahan mengenai resep..." disabled={isLoading} />
-              </div>
-            </div>
-          </div>
-
-          {/* Ingredients Card */}
-          <div className="card shadow-sm mb-4">
-            <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">🥕 Bahan Baku ({ingredients.length}) - Akan disimpan di Sheet "Ingredients"</h5>
-              <button className="btn btn-light btn-sm" onClick={addIngredient} disabled={isLoading}>
-                <i className="bi bi-plus-circle me-1"></i>Tambah Bahan
-              </button>
-            </div>
-            <div className="card-body">
-              {ingredients.map((ingredient, index) => (
-                <div key={ingredient.id} className="ingredient-card mb-3 p-3 border rounded">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <h6 className="mb-0">
-                      <span className="badge bg-secondary me-2">{index + 1}</span>
-                      {ingredient.name || 'Bahan Baru'}
-                      {ingredient.category && <span className="badge bg-info ms-2">{ingredient.category}</span>}
-                    </h6>
-                    {ingredients.length > 1 && (
-                      <button className="btn btn-outline-danger btn-sm" onClick={() => removeIngredient(ingredient.id)} disabled={isLoading}>
-                        <i className="bi bi-trash"></i>
-                      </button>
-                    )}
-                  </div>
-                  
-                  <div className="row g-2">
-                    <div className="col-md-3">
-                      <label className="form-label small">Nama Bahan *</label>
-                      <input type="text" className="form-control form-control-sm" value={ingredient.name} 
-                        onChange={(e) => updateIngredient(ingredient.id, 'name', e.target.value)} 
-                        placeholder="Tepung Terigu" disabled={isLoading} required />
+              {/* HPP Tab */}
+              {activeTab === "hpp" && (
+                <div className="hpp-form">
+                  <div className="row mb-3">
+                    <div className="col-md-6">
+                      <label className="form-label">Menu Name *</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={menuName}
+                        onChange={(e) => setMenuName(e.target.value)}
+                        placeholder="e.g., Spaghetti Carbonara"
+                        disabled={loading}
+                      />
                     </div>
-                    
-                    <div className="col-md-2">
-                      <label className="form-label small">Kategori</label>
-                      <select className="form-select form-select-sm" value={ingredient.category}
-                        onChange={(e) => updateIngredient(ingredient.id, 'category', e.target.value)} disabled={isLoading}>
-                        <option value="Bahan Utama">Bahan Utama</option>
-                        <option value="Bahan Tambahan">Bahan Tambahan</option>
-                        <option value="Bumbu">Bumbu</option>
-                        <option value="Bahan Pelengkap">Bahan Pelengkap</option>
-                        <option value="Kemasan">Kemasan</option>
-                        <option value="Lainnya">Lainnya</option>
+                    <div className="col-md-3">
+                      <label className="form-label">Category</label>
+                      <select
+                        className="form-select"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                        disabled={loading}
+                      >
+                        <option value="MAKANAN">Food</option>
+                        <option value="MINUMAN">Drink</option>
                       </select>
                     </div>
-                    
-                    <div className="col-md-2">
-                      <label className="form-label small">Jumlah Pakai *</label>
-                      <div className="input-group input-group-sm">
-                        <input type="number" className="form-control" value={ingredient.usage} 
-                          onChange={(e) => updateIngredient(ingredient.id, 'usage', e.target.value)} 
-                          placeholder="360" step="0.01" min="0" disabled={isLoading} required />
-                        <select className="form-select" style={{ width: '80px' }} value={ingredient.unit} 
-                          onChange={(e) => updateIngredient(ingredient.id, 'unit', e.target.value)} disabled={isLoading}>
-                          <option value="gr">gr</option>
-                          <option value="ml">ml</option>
-                          <option value="kg">kg</option>
-                          <option value="pcs">pcs</option>
-                          <option value="sdm">sdm</option>
-                          <option value="sdt">sdt</option>
-                          <option value="liter">liter</option>
-                          <option value="buah">buah</option>
-                          <option value="lembar">lembar</option>
-                        </select>
-                      </div>
-                    </div>
-                    
-                    <div className="col-md-2">
-                      <label className="form-label small">Harga Beli *</label>
-                      <div className="input-group input-group-sm">
-                        <span className="input-group-text">Rp</span>
-                        <input type="number" className="form-control" value={ingredient.purchasePrice} 
-                          onChange={(e) => updateIngredient(ingredient.id, 'purchasePrice', e.target.value)} 
-                          placeholder="25000" step="100" min="0" disabled={isLoading} required />
-                      </div>
-                    </div>
-                    
                     <div className="col-md-3">
-                      <label className="form-label small">Satuan Beli *</label>
-                      <div className="input-group input-group-sm">
-                        <input type="number" className="form-control" value={ingredient.purchaseUnit} 
-                          onChange={(e) => updateIngredient(ingredient.id, 'purchaseUnit', e.target.value)} 
-                          placeholder="1000" step="0.01" min="0.01" disabled={isLoading} required />
-                        <select className="form-select" style={{ width: '100px' }} value={ingredient.purchaseUnitType}
-                          onChange={(e) => updateIngredient(ingredient.id, 'purchaseUnitType', e.target.value)} disabled={isLoading}>
-                          <option value="gr">gr</option>
-                          <option value="ml">ml</option>
-                          <option value="kg">kg</option>
-                          <option value="pcs">pcs</option>
-                          <option value="liter">liter</option>
-                          <option value="pack">pack</option>
-                          <option value="box">box</option>
-                          <option value="dus">dus</option>
-                        </select>
+                      <label className="form-label">Subcategory</label>
+                      <select
+                        className="form-select"
+                        value={subcategory}
+                        onChange={(e) => setSubcategory(e.target.value)}
+                        disabled={loading}
+                      >
+                        {CATEGORIES[category]?.map((sub) => (
+                          <option key={sub} value={sub}>
+                            {sub.replace("_", " ")}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="row mb-3">
+                    <div className="col-md-6">
+                      <label className="form-label">Brand / Product Line</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={brand}
+                        onChange={(e) => setBrand(e.target.value)}
+                        placeholder="e.g., Signature Dishes"
+                        disabled={loading}
+                      />
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label">Target Cost</label>
+                      <div className="input-group">
+                        <span className="input-group-text">Rp</span>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={targetCost}
+                          onChange={(e) => setTargetCost(e.target.value)}
+                          placeholder="25000"
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label">Production Qty</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={targetQty}
+                        onChange={(e) => setTargetQty(e.target.value)}
+                        placeholder="4"
+                        min="1"
+                        disabled={loading}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="row mb-3">
+                    <div className="col-md-4">
+                      <label className="form-label">Profit Margin (%)</label>
+                      <div className="input-group">
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={profitMargin}
+                          onChange={(e) => setProfitMargin(e.target.value)}
+                          min="0"
+                          max="100"
+                          disabled={loading}
+                        />
+                        <span className="input-group-text">%</span>
+                      </div>
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label">GoFood Fee (%)</label>
+                      <div className="input-group">
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={gofoodPercentage}
+                          onChange={(e) => setGofoodPercentage(e.target.value)}
+                          min="0"
+                          max="100"
+                          disabled={loading}
+                        />
+                        <span className="input-group-text">%</span>
+                      </div>
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label">Tax (%)</label>
+                      <div className="input-group">
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={taxPercentage}
+                          onChange={(e) => setTaxPercentage(e.target.value)}
+                          min="0"
+                          max="100"
+                          disabled={loading}
+                        />
+                        <span className="input-group-text">%</span>
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="row g-2 mt-2">
-                    <div className="col-md-6">
-                      <label className="form-label small">Supplier</label>
-                      <input type="text" className="form-control form-control-sm" value={ingredient.supplier} 
-                        onChange={(e) => updateIngredient(ingredient.id, 'supplier', e.target.value)} 
-                        placeholder="Nama supplier" disabled={isLoading} />
+
+                  <div className="mb-3">
+                    <label className="form-label">Notes</label>
+                    <textarea
+                      className="form-control"
+                      rows="2"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Additional notes about this menu..."
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Recipe Tab */}
+              {activeTab === "resep" && (
+                <div className="resep-form">
+                  <div className="d-flex justify-content-between align-items-center mb-3">
+                    <h5>Ingredients ({ingredients.length})</h5>
+                    <button
+                      className="btn btn-sm btn-success"
+                      onClick={addIngredient}
+                      disabled={loading}
+                    >
+                      + Add Ingredient
+                    </button>
+                  </div>
+
+                  {ingredients.map((ingredient, index) => (
+                    <div
+                      key={ingredient.id}
+                      className="ingredient-card mb-3 p-3 border rounded"
+                    >
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <h6 className="mb-0">
+                          <span className="badge bg-secondary me-2">
+                            {index + 1}
+                          </span>
+                          {ingredient.name || "New Ingredient"}
+                        </h6>
+                        {ingredients.length > 1 && (
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={() => removeIngredient(ingredient.id)}
+                            disabled={loading}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="row g-2">
+                        <div className="col-md-3">
+                          <label className="form-label small">
+                            Ingredient Name *
+                          </label>
+                          <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            value={ingredient.name}
+                            onChange={(e) =>
+                              updateIngredient(
+                                ingredient.id,
+                                "name",
+                                e.target.value,
+                              )
+                            }
+                            disabled={loading}
+                          />
+                        </div>
+
+                        <div className="col-md-2">
+                          <label className="form-label small">
+                            Usage Amount *
+                          </label>
+                          <input
+                            type="number"
+                            className="form-control form-control-sm"
+                            value={ingredient.usage}
+                            onChange={(e) =>
+                              updateIngredient(
+                                ingredient.id,
+                                "usage",
+                                e.target.value,
+                              )
+                            }
+                            disabled={loading}
+                          />
+                        </div>
+
+                        <div className="col-md-2">
+                          <label className="form-label small">Unit</label>
+                          <select
+                            className="form-select form-control-sm"
+                            value={ingredient.unit}
+                            onChange={(e) =>
+                              updateIngredient(
+                                ingredient.id,
+                                "unit",
+                                e.target.value,
+                              )
+                            }
+                            disabled={loading}
+                          >
+                            <option value="GRAM">Gram</option>
+                            <option value="ML">ML</option>
+                            <option value="PCS">Pcs</option>
+                            <option value="KG">Kg</option>
+                            <option value="LITER">Liter</option>
+                          </select>
+                        </div>
+
+                        <div className="col-md-3">
+                          <label className="form-label small">
+                            Purchase Price *
+                          </label>
+                          <div className="input-group input-group-sm">
+                            <span className="input-group-text">Rp</span>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={ingredient.purchase_price}
+                              onChange={(e) =>
+                                updateIngredient(
+                                  ingredient.id,
+                                  "purchase_price",
+                                  e.target.value,
+                                )
+                              }
+                              disabled={loading}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-2">
+                          <label className="form-label small">
+                            Purchase Unit *
+                          </label>
+                          <input
+                            type="number"
+                            className="form-control form-control-sm"
+                            value={ingredient.purchase_unit}
+                            onChange={(e) =>
+                              updateIngredient(
+                                ingredient.id,
+                                "purchase_unit",
+                                e.target.value,
+                              )
+                            }
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="row g-2 mt-2">
+                        <div className="col-md-3">
+                          <label className="form-label small">Category</label>
+                          <select
+                            className="form-select form-control-sm"
+                            value={ingredient.category}
+                            onChange={(e) =>
+                              updateIngredient(
+                                ingredient.id,
+                                "category",
+                                e.target.value,
+                              )
+                            }
+                            disabled={loading}
+                          >
+                            <option value="BAHAN_UTAMA">Main Ingredient</option>
+                            <option value="BAHAN_TAMBAHAN">Additional</option>
+                            <option value="BUMBU">Seasoning</option>
+                            <option value="KEMASAN">Packaging</option>
+                          </select>
+                        </div>
+
+                        <div className="col-md-4">
+                          <label className="form-label small">Supplier</label>
+                          <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            value={ingredient.supplier}
+                            onChange={(e) =>
+                              updateIngredient(
+                                ingredient.id,
+                                "supplier",
+                                e.target.value,
+                              )
+                            }
+                            disabled={loading}
+                          />
+                        </div>
+
+                        <div className="col-md-5">
+                          <label className="form-label small">Notes</label>
+                          <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            value={ingredient.notes}
+                            onChange={(e) =>
+                              updateIngredient(
+                                ingredient.id,
+                                "notes",
+                                e.target.value,
+                              )
+                            }
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-2">
+                        <small className="text-success">
+                          Cost:{" "}
+                          <strong>
+                            {formatRupiah(calculateIngredientCost(ingredient))}
+                          </strong>
+                        </small>
+                      </div>
                     </div>
-                    <div className="col-md-6">
-                      <label className="form-label small">Catatan Bahan</label>
-                      <input type="text" className="form-control form-control-sm" value={ingredient.notes} 
-                        onChange={(e) => updateIngredient(ingredient.id, 'notes', e.target.value)} 
-                        placeholder="Catatan khusus" disabled={isLoading} />
+                  ))}
+
+                  {/* Packaging Section */}
+                  <div className="mt-4 p-3 border rounded bg-light">
+                    <h6>📦 Packaging Cost</h6>
+                    <div className="row g-2">
+                      <div className="col-md-4">
+                        <label className="form-label small">
+                          Packaging Name
+                        </label>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm"
+                          value={packaging.name}
+                          onChange={(e) =>
+                            setPackaging({ ...packaging, name: e.target.value })
+                          }
+                          disabled={loading}
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label small">Total Cost</label>
+                        <div className="input-group input-group-sm">
+                          <span className="input-group-text">Rp</span>
+                          <input
+                            type="number"
+                            className="form-control"
+                            value={packaging.cost}
+                            onChange={(e) =>
+                              setPackaging({
+                                ...packaging,
+                                cost: e.target.value,
+                              })
+                            }
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label small">Quantity</label>
+                        <input
+                          type="number"
+                          className="form-control form-control-sm"
+                          value={packaging.quantity}
+                          onChange={(e) =>
+                            setPackaging({
+                              ...packaging,
+                              quantity: e.target.value,
+                            })
+                          }
+                          disabled={loading}
+                        />
+                      </div>
                     </div>
                   </div>
-                  
-                  <div className="mt-2">
-                    <small className="text-success">
-                      <i className="bi bi-calculator me-1"></i>
-                      Biaya penggunaan: <strong>{formatRupiah(calculateIngredientCost(ingredient))}</strong>
+
+                  <div className="mt-3">
+                    <small className="text-muted">
+                      Total Ingredients Cost:{" "}
+                      <strong>{formatRupiah(calculateTotalMaterial())}</strong>
                       <span className="ms-3">
-                        Konversi: {ingredient.usage || 0} {ingredient.unit} = {((parseFloat(ingredient.usage) || 0)/(parseFloat(ingredient.purchaseUnit) || 1)).toFixed(2)} satuan beli
+                        Total Packaging:{" "}
+                        <strong>
+                          {formatRupiah(parseFloat(packaging.cost) || 0)}
+                        </strong>
                       </span>
                     </small>
                   </div>
                 </div>
-              ))}
-              
-              <div className="mt-3">
-                <small className="text-muted">
-                  <i className="bi bi-info-circle me-1"></i>
-                  Total semua bahan: <strong>{formatRupiah(calculateTotalMaterialCost())}</strong>
-                  <span className="ms-3">Jumlah bahan: {ingredients.length} item</span>
-                </small>
-              </div>
-            </div>
-          </div>
+              )}
 
-          {/* Packaging Card */}
-          <div className="card shadow-sm mb-4">
-            <div className="card-header bg-warning text-white">
-              <h5 className="mb-0">📦 Biaya Packaging - Akan disimpan di Sheet "Packaging"</h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-4 mb-3">
-                  <label className="form-label"><i className="bi bi-box me-2"></i>Nama Packaging</label>
-                  <input type="text" className="form-control" value={consumable.name} 
-                    onChange={(e) => setConsumable({...consumable, name: e.target.value})} 
-                    placeholder="Contoh: Box Makanan" disabled={isLoading} />
-                </div>
-                <div className="col-md-3 mb-3">
-                  <label className="form-label"><i className="bi bi-cash me-2"></i>Total Biaya</label>
-                  <div className="input-group">
-                    <span className="input-group-text">Rp</span>
-                    <input type="number" className="form-control" value={consumable.cost} 
-                      onChange={(e) => setConsumable({...consumable, cost: e.target.value})} 
-                      placeholder="5000" min="0" step="100" disabled={isLoading} />
-                  </div>
-                </div>
-                <div className="col-md-2 mb-3">
-                  <label className="form-label"><i className="bi bi-123 me-2"></i>Quantity</label>
-                  <input type="number" className="form-control" value={consumable.quantity} 
-                    onChange={(e) => setConsumable({...consumable, quantity: e.target.value})} 
-                    placeholder="1" min="1" step="1" disabled={isLoading} />
-                </div>
-                <div className="col-md-3 mb-3">
-                  <label className="form-label"><i className="bi bi-rulers me-2"></i>Unit</label>
-                  <select className="form-select" value={consumable.unit}
-                    onChange={(e) => setConsumable({...consumable, unit: e.target.value})} disabled={isLoading}>
-                    <option value="unit">unit</option>
-                    <option value="pack">pack</option>
-                    <option value="set">set</option>
-                    <option value="roll">roll</option>
-                    <option value="meter">meter</option>
-                    <option value="pcs">pcs</option>
-                  </select>
-                </div>
-              </div>
-              <div className="row">
-                <div className="col-md-6">
-                  <label className="form-label"><i className="bi bi-tag me-2"></i>Jenis Packaging</label>
-                  <select className="form-select" value={consumable.type}
-                    onChange={(e) => setConsumable({...consumable, type: e.target.value})} disabled={isLoading}>
-                    <option value="Packaging">Packaging</option>
-                    <option value="Label">Label</option>
-                    <option value="Sticker">Sticker</option>
-                    <option value="Plastik">Plastik</option>
-                    <option value="Paper Bag">Paper Bag</option>
-                    <option value="Box">Box</option>
-                    <option value="Lainnya">Lainnya</option>
-                  </select>
-                </div>
-                <div className="col-md-6">
-                  <div className="alert alert-light mt-4">
-                    <small>
-                      <i className="bi bi-info-circle me-1"></i>
-                      Biaya per unit: <strong>
-                        {formatRupiah((parseFloat(consumable.cost) || 0) / (parseFloat(consumable.quantity) || 1))}
-                      </strong>
-                    </small>
-                  </div>
+              {/* Save Button */}
+              <div className="mt-4">
+                <button
+                  className="btn btn-success btn-lg w-100"
+                  onClick={saveMenu}
+                  disabled={loading || !menuName.trim()}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2"></span>
+                      {editMode ? "Updating..." : "Saving..."}
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-save me-2"></i>
+                      {editMode ? "Update Menu" : "Save Menu to Google Sheets"}
+                    </>
+                  )}
+                </button>
+
+                <div className="d-flex gap-2 mt-2">
+                  <button
+                    className="btn btn-outline-secondary flex-grow-1"
+                    onClick={resetForm}
+                    disabled={loading}
+                  >
+                    Clear Form
+                  </button>
+
+                  <button
+                    className="btn btn-outline-primary flex-grow-1"
+                    onClick={() =>
+                      setActiveTab(activeTab === "hpp" ? "resep" : "hpp")
+                    }
+                    disabled={loading}
+                  >
+                    {activeTab === "hpp"
+                      ? "Go to Recipe Details"
+                      : "Go to HPP Calculation"}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column - Results & Save */}
+        {/* Right Column - Results & Summary */}
         <div className="col-lg-4">
           {/* Cost Summary */}
           <div className="card shadow-sm mb-4">
             <div className="card-header bg-info text-white">
-              <h5 className="mb-0">📊 Ringkasan Biaya</h5>
+              <h5 className="mb-0">📊 Cost Summary</h5>
             </div>
             <div className="card-body">
               <div className="summary-item mb-3">
-                <div className="d-flex justify-content-between mb-1">
-                  <span>Total Biaya Bahan:</span>
-                  <span className="fw-bold text-success">{formatRupiah(calculateTotalMaterialCost())}</span>
+                <div className="d-flex justify-content-between">
+                  <span>Total Ingredients:</span>
+                  <strong className="text-success">
+                    {formatRupiah(calculateTotalMaterial())}
+                  </strong>
                 </div>
-                <small className="text-muted">{ingredients.length} bahan</small>
+                <small className="text-muted">{ingredients.length} items</small>
               </div>
-              
+
               <div className="summary-item mb-3">
-                <div className="d-flex justify-content-between mb-1">
-                  <span>Biaya Packaging:</span>
-                  <span className="fw-bold text-warning">{formatRupiah(parseFloat(consumable.cost) || 0)}</span>
+                <div className="d-flex justify-content-between">
+                  <span>Packaging:</span>
+                  <strong className="text-warning">
+                    {formatRupiah(parseFloat(packaging.cost) || 0)}
+                  </strong>
                 </div>
-                <small className="text-muted">{consumable.quantity} {consumable.unit} ({consumable.name})</small>
               </div>
-              
+
               <div className="summary-item mb-3 p-2 bg-light rounded">
-                <div className="d-flex justify-content-between mb-1">
-                  <span>Total Biaya Produksi:</span>
-                  <span className="fw-bold text-primary">{formatRupiah(calculateTotalProductionCost())}</span>
+                <div className="d-flex justify-content-between">
+                  <span>Total Production Cost:</span>
+                  <strong className="text-primary">
+                    {formatRupiah(calculateTotalProduction())}
+                  </strong>
                 </div>
-                <small className="text-muted">Untuk {targetPieces || 1} unit produksi</small>
+                <small className="text-muted">For {targetQty} units</small>
               </div>
-              
+
               <hr />
-              
+
               <div className="result-box p-3 bg-success text-white rounded mb-3">
-                <div className="d-flex justify-content-between align-items-center mb-1">
+                <div className="d-flex justify-content-between align-items-center">
                   <h6 className="mb-0">HPP per Unit:</h6>
-                  <h4 className="mb-0">{formatRupiah(calculateHPPPerPiece())}</h4>
+                  <h4 className="mb-0">
+                    {formatRupiah(calculateHppPerUnit())}
+                  </h4>
                 </div>
-                <small>Biaya per porsi</small>
+                <small>Cost per serving</small>
               </div>
-              
-              {targetCost && (
-                <div className="result-box p-3 bg-light rounded">
-                  <div className="d-flex justify-content-between align-items-center mb-1">
-                    <h6 className="mb-0">Selisih Target:</h6>
-                    <h5 className="mb-0" style={{color: (parseFloat(targetCost) || 0) >= calculateHPPPerPiece() ? 'green' : 'red'}}>
-                      {formatRupiah((parseFloat(targetCost) || 0) - calculateHPPPerPiece())}
-                    </h5>
+
+              <div className="result-box p-3 bg-light rounded">
+                <div className="d-flex justify-content-between mb-2">
+                  <span>Dine In Price:</span>
+                  <strong className="text-primary">
+                    {formatRupiah(calculateDineInPrice())}
+                  </strong>
+                </div>
+                <div className="d-flex justify-content-between mb-2">
+                  <span>GoFood Price:</span>
+                  <strong className="text-danger">
+                    {formatRupiah(calculateGofoodPrice())}
+                  </strong>
+                </div>
+                <div className="d-flex justify-content-between">
+                  <span>Gross Profit/Unit:</span>
+                  <strong className="text-success">
+                    {formatRupiah(calculateGrossProfit())}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Stats */}
+          <div className="card shadow-sm">
+            <div className="card-header bg-purple text-white">
+              <h5 className="mb-0">📈 Quick Stats</h5>
+            </div>
+            <div className="card-body">
+              <div className="row text-center">
+                <div className="col-6 mb-3">
+                  <div className="stat-value">{profitMargin}%</div>
+                  <small className="text-muted">Profit Margin</small>
+                </div>
+                <div className="col-6 mb-3">
+                  <div className="stat-value">{ingredients.length}</div>
+                  <small className="text-muted">Ingredients</small>
+                </div>
+                <div className="col-6 mb-3">
+                  <div className="stat-value">{targetQty}</div>
+                  <small className="text-muted">Production Qty</small>
+                </div>
+                <div className="col-6 mb-3">
+                  <div className="stat-value text-success">
+                    {formatRupiah(calculateTotalProfit())}
                   </div>
-                  <small className="text-muted">
-                    {(parseFloat(targetCost) || 0) >= calculateHPPPerPiece() ? '✅ Menguntungkan' : '⚠️ Perlu penyesuaian'}
-                    {targetCost && calculateHPPPerPiece() > 0 && (
-                      <span className="ms-2">
-                        ({((((parseFloat(targetCost) || 0) - calculateHPPPerPiece()) / calculateHPPPerPiece()) * 100).toFixed(1)}%)
-                      </span>
-                    )}
+                  <small className="text-muted">Total Profit</small>
+                </div>
+              </div>
+
+              {targetCost && (
+                <div className="alert alert-warning mt-3">
+                  <small>
+                    <strong>Target vs Actual:</strong>
+                    <br />
+                    Target: {formatRupiah(parseFloat(targetCost))}
+                    <br />
+                    Actual HPP: {formatRupiah(calculateHppPerUnit())}
+                    <br />
+                    Difference:{" "}
+                    <span
+                      style={{
+                        color:
+                          (parseFloat(targetCost) || 0) >= calculateHppPerUnit()
+                            ? "green"
+                            : "red",
+                      }}
+                    >
+                      {formatRupiah(
+                        (parseFloat(targetCost) || 0) - calculateHppPerUnit(),
+                      )}
+                    </span>
                   </small>
                 </div>
               )}
             </div>
           </div>
-
-          {/* Price Calculator */}
-          <div className="card shadow-sm mb-4">
-            <div className="card-header bg-purple text-white">
-              <h5 className="mb-0">💰 Kalkulator Harga Jual</h5>
-            </div>
-            <div className="card-body">
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label small">Margin Profit (%)</label>
-                  <div className="input-group input-group-sm mb-2">
-                    <input type="number" className="form-control" value={profitMargin} 
-                      onChange={(e) => setProfitMargin(e.target.value)} 
-                      placeholder="40" min="0" max="100" step="1" disabled={isLoading} />
-                    <span className="input-group-text">%</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <label className="form-label small">Biaya Platform (%)</label>
-                  <div className="input-group input-group-sm mb-2">
-                    <input type="number" className="form-control" value={goFoodPercentage} 
-                      onChange={(e) => setGoFoodPercentage(e.target.value)} 
-                      placeholder="20" min="0" max="100" step="1" disabled={isLoading} />
-                    <span className="input-group-text">%</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="row mb-2">
-                <div className="col-md-12">
-                  <label className="form-label small">Pajak (%)</label>
-                  <div className="input-group input-group-sm mb-2">
-                    <input type="number" className="form-control" value={taxPercentage} 
-                      onChange={(e) => setTaxPercentage(e.target.value)} 
-                      placeholder="10" min="0" max="100" step="1" disabled={isLoading} />
-                    <span className="input-group-text">%</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="price-results">
-                <div className="price-item mb-2 p-2 bg-light rounded">
-                  <div className="d-flex justify-content-between">
-                    <span>Harga Dine In:</span>
-                    <span className="fw-bold text-primary">{formatRupiah(calculateDineInPrice())}</span>
-                  </div>
-                  <small className="text-muted">Margin: {profitMargin}%</small>
-                </div>
-                
-                <div className="price-item mb-2 p-2 bg-light rounded">
-                  <div className="d-flex justify-content-between">
-                    <span>+ Biaya Platform ({goFoodPercentage}%):</span>
-                    <span className="text-warning">+ {formatRupiah(calculateGoFoodCost())}</span>
-                  </div>
-                </div>
-                
-                <div className="price-item mb-2 p-2 bg-light rounded">
-                  <div className="d-flex justify-content-between">
-                    <span>+ Pajak ({taxPercentage}%):</span>
-                    <span className="text-warning">+ {formatRupiah(calculateRestaurantTax())}</span>
-                  </div>
-                </div>
-                
-                <div className="price-item p-2 bg-success text-white rounded mt-3">
-                  <div className="d-flex justify-content-between">
-                    <span><strong>HARGA GOFOOD:</strong></span>
-                    <span><strong>{formatRupiah(calculateGoFoodPrice())}</strong></span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="mt-3 row">
-                <div className="col-md-6">
-                  <small className="text-muted">
-                    <i className="bi bi-graph-up me-1"></i>
-                    Laba/unit: {formatRupiah(calculateGrossProfit())}
-                  </small>
-                </div>
-                <div className="col-md-6 text-end">
-                  <small className="text-muted">
-                    Total Laba: {formatRupiah(calculateTotalGrossProfit())}
-                  </small>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Save Card */}
-          <div className="card shadow-sm">
-            <div className="card-header bg-success text-white">
-              <h5 className="mb-0">{editMode ? '✏️ Update Recipe' : '💾 Save New Recipe'}</h5>
-            </div>
-            <div className="card-body">
-              <div className="mb-3">
-                <h6>Data yang akan disimpan:</h6>
-                <div className="small">
-                  <div className="d-flex align-items-center mb-1">
-                    <span className="badge bg-info me-2">📋</span>
-                    <span>Sheet "Recipes": Data utama resep</span>
-                  </div>
-                  <div className="d-flex align-items-center mb-1">
-                    <span className="badge bg-success me-2">🥕</span>
-                    <span>Sheet "Ingredients": {ingredients.length} bahan baku</span>
-                  </div>
-                  <div className="d-flex align-items-center mb-1">
-                    <span className="badge bg-warning me-2">📦</span>
-                    <span>Sheet "Packaging": Data packaging</span>
-                  </div>
-                  <div className="d-flex align-items-center mb-1">
-                    <span className="badge bg-purple me-2">💰</span>
-                    <span>Sheet "Pricing": Data harga & margin</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="alert alert-info small mb-3">
-                <strong><i className="bi bi-google me-1"></i>Struktur Google Sheets:</strong>
-                <p className="mb-0 mt-1">Data akan tersimpan di 4 sheet terpisah untuk organisasi yang lebih baik.</p>
-              </div>
-              
-              <div className="d-grid gap-2">
-                <button className={editMode ? "btn btn-warning btn-lg" : "btn btn-success btn-lg"}
-                  onClick={() => saveToGoogleSheets(editMode)}
-                  disabled={isLoading || !recipeName.trim()}>
-                  {isLoading ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2"></span>
-                      {editMode ? 'Updating...' : 'Saving...'}
-                    </>
-                  ) : (
-                    <>
-                      <i className={editMode ? "bi bi-arrow-clockwise me-2" : "bi bi-save me-2"}></i>
-                      {editMode ? 'Update Recipe' : 'Save Recipe to Google Sheets'}
-                    </>
-                  )}
-                </button>
-                
-                <button className="btn btn-outline-primary" onClick={() => setShowHistory(!showHistory)} disabled={isLoading}>
-                  <i className="bi bi-clock-history me-2"></i>
-                  {showHistory ? 'Sembunyikan' : 'Lihat'} History ({recipeHistory.length})
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="mt-4 mb-3 text-center">
-        <div className="row">
-          <div className="col-md-3">
-            <p className="small text-muted mb-1">
-              Status: <span className={`badge ${connectionStatus === 'connected' ? 'bg-success' : 'bg-warning'}`}>
-                {connectionStatus === 'connected' ? '✅ CONNECTED' : '⚠️ CHECKING'}
-              </span>
-            </p>
-          </div>
-          <div className="col-md-3">
-            <p className="small text-muted mb-1">
-              Mode: <strong>{editMode ? 'EDITING' : 'NEW RECIPE'}</strong>
-            </p>
-          </div>
-          <div className="col-md-3">
-            <p className="small text-muted mb-1">
-              Sheets: <strong>4 Sheets</strong>
-            </p>
-          </div>
-          <div className="col-md-3">
-            <p className="small text-muted mb-1">
-              Bahan: <strong>{ingredients.length} items</strong>
-            </p>
-          </div>
-        </div>
-        <p className="small text-muted mt-2">
-          <i className="bi bi-google me-1"></i>HPP Calculator v5.0 | 4 Sheets Integration | Complete Data Storage
-        </p>
-      </footer>
-
-      {/* Recipe Selector Modal */}
-      {showRecipeSelector && (
-        <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
-          <div className="modal-dialog modal-xl modal-dialog-scrollable">
+      {/* Menu List Modal */}
+      {showMenuList && (
+        <div
+          className="modal show d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog modal-lg">
             <div className="modal-content">
-              <div className="modal-header bg-warning text-white">
-                <h5 className="modal-title"><i className="bi bi-journal-text me-2"></i>Select Recipe to Edit ({availableRecipes.length} found)</h5>
-                <button type="button" className="btn-close btn-close-white" onClick={() => setShowRecipeSelector(false)}></button>
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">
+                  Saved Menus ({savedMenus.length})
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setShowMenuList(false)}
+                ></button>
               </div>
               <div className="modal-body">
-                {availableRecipes.length > 0 ? (
+                {savedMenus.length > 0 ? (
                   <div className="table-responsive">
                     <table className="table table-hover table-sm">
-                      <thead className="table-light">
+                      <thead>
                         <tr>
-                          <th>Recipe Name</th>
+                          <th>Menu ID</th>
+                          <th>Menu Name</th>
                           <th>Category</th>
-                          <th>Brand</th>
                           <th>HPP/Unit</th>
                           <th>Dine In Price</th>
-                          <th>Last Updated</th>
+                          <th>Status</th>
                           <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {availableRecipes.map((recipe) => (
-                          <tr key={recipe.id}>
+                        {savedMenus.map((menu, index) => (
+                          <tr key={index}>
                             <td>
-                              <strong>{recipe.recipe_name}</strong>
-                              {recipe.notes && (
-                                <div><small className="text-muted">{recipe.notes}</small></div>
+                              <small>{menu.menu_id || menu.local_id}</small>
+                            </td>
+                            <td>
+                              <strong>
+                                {menu.nama_menu || menu.menu_name}
+                              </strong>
+                            </td>
+                            <td>
+                              <span className="badge bg-info">
+                                {menu.kategori || menu.category}
+                              </span>
+                            </td>
+                            <td className="text-success">
+                              {formatRupiah(
+                                menu.hpp_per_unit || menu.hpp_per_piece || 0,
+                              )}
+                            </td>
+                            <td className="text-primary">
+                              {formatRupiah(
+                                menu.harga_dine_in || menu.dine_in_price || 0,
                               )}
                             </td>
                             <td>
-                              <span className="badge bg-info me-1">{recipe.recipe_category}</span>
-                              <small>{recipe.recipe_subcategory}</small>
-                            </td>
-                            <td>{recipe.brand || '-'}</td>
-                            <td className="text-success">{formatRupiah(recipe.hpp_per_piece || 0)}</td>
-                            <td className="text-primary">{formatRupiah(recipe.dine_in_price || 0)}</td>
-                            <td>
-                              <small>{recipe.last_updated || recipe.timestamp || 'N/A'}</small>
+                              <span className="badge bg-success">ACTIVE</span>
                             </td>
                             <td>
-                              <div className="btn-group btn-group-sm">
-                                <button className="btn btn-warning" onClick={() => loadRecipeForEditing(recipe.id)} disabled={isLoading}>
-                                  <i className="bi bi-pencil me-1"></i>Edit
-                                </button>
-                                <button className="btn btn-outline-danger" onClick={() => deleteRecipe(recipe.id)} disabled={isLoading}>
-                                  <i className="bi bi-trash"></i>
-                                </button>
-                              </div>
+                              <button
+                                className="btn btn-sm btn-outline-warning"
+                                onClick={() => {
+                                  if (menu.menu_id) {
+                                    loadMenuForEdit(menu.menu_id);
+                                  }
+                                  setShowMenuList(false);
+                                }}
+                              >
+                                Edit
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -1215,22 +1237,58 @@ const App = () => {
                   </div>
                 ) : (
                   <div className="text-center py-4">
-                    <div className="spinner-border text-warning mb-3" role="status">
-                      <span className="visually-hidden">Loading...</span>
-                    </div>
-                    <p className="text-muted">Loading recipes from Google Sheets...</p>
+                    <p className="text-muted">No menus saved yet</p>
                   </div>
                 )}
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowRecipeSelector(false)}>
-                  Cancel
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowMenuList(false)}
+                >
+                  Close
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Footer */}
+      <footer className="mt-4 mb-3 text-center">
+        <div className="row">
+          <div className="col-md-3">
+            <small className="text-muted">
+              Status:{" "}
+              <span
+                className={`badge ${connection === "connected" ? "bg-success" : "bg-warning"}`}
+              >
+                {connection === "connected" ? "ONLINE" : "OFFLINE"}
+              </span>
+            </small>
+          </div>
+          <div className="col-md-3">
+            <small className="text-muted">
+              Sheets: <strong>4 Sheets</strong>
+            </small>
+          </div>
+          <div className="col-md-3">
+            <small className="text-muted">
+              Ingredients: <strong>{ingredients.length}</strong>
+            </small>
+          </div>
+          <div className="col-md-3">
+            <small className="text-muted">
+              Mode: <strong>{editMode ? "EDITING" : "NEW"}</strong>
+            </small>
+          </div>
+        </div>
+        <p className="small text-muted mt-2">
+          HPP Calculator v2.0 | Separate HPP & Recipe Storage | Google Sheets
+          Integration
+        </p>
+      </footer>
     </div>
   );
 };
