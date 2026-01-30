@@ -22,7 +22,6 @@ const App = () => {
   const [lastCheck, setLastCheck] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editRecipeId, setEditRecipeId] = useState(null);
-  const [editRecipeRow, setEditRecipeRow] = useState(null);
 
   const [ingredients, setIngredients] = useState([{ id: 1, name: '', usage: '', unit: 'gr', purchasePrice: '', purchaseUnit: '' }]);
   const [consumable, setConsumable] = useState({ name: 'Packaging', cost: '', quantity: '1', unit: 'unit' });
@@ -34,6 +33,7 @@ const App = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [availableRecipes, setAvailableRecipes] = useState([]);
   const [showRecipeSelector, setShowRecipeSelector] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const subCategories = CATEGORIES[recipeCategory] || [];
@@ -114,7 +114,6 @@ const App = () => {
     setSaveStatus({ type: '', message: '' });
     setEditMode(false);
     setEditRecipeId(null);
-    setEditRecipeRow(null);
   };
 
   // ===== CONNECTION TEST =====
@@ -123,21 +122,22 @@ const App = () => {
       setConnectionStatus('checking');
       setSaveStatus({ type: 'loading', message: '🔄 Testing connection...' });
       
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ping' })
+      // eslint-disable-next-line no-unused-vars
+      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=ping&t=${Date.now()}`, {
+        method: 'GET',
+        mode: 'no-cors'
       });
       
+      // Untuk no-cors mode, kita anggap berhasil jika tidak error
       setConnectionStatus('connected');
       setLastCheck(new Date());
       setSaveStatus({ type: 'success', message: '✅ Connected to Google Sheets!' });
       
     } catch (error) {
+      console.error('Connection test error:', error);
       setConnectionStatus('error');
       setLastCheck(new Date());
-      setSaveStatus({ type: 'error', message: '❌ Connection failed' });
+      setSaveStatus({ type: 'warning', message: '⚠️ Connection failed. Using offline mode.' });
     }
   };
 
@@ -147,150 +147,141 @@ const App = () => {
       setIsLoading(true);
       setSaveStatus({ type: 'loading', message: '📥 Loading recipes...' });
       
-      // Gunakan form submission untuk menghindari CORS
-      const form = document.createElement('form');
-      const iframe = document.createElement('iframe');
-      iframe.name = 'load-recipes-iframe';
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
+      // Gunakan GET request
+      // eslint-disable-next-line no-unused-vars
+      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipes&t=${Date.now()}`, {
+        method: 'GET',
+        mode: 'no-cors'
+      });
       
-      form.target = iframe.name;
-      form.action = GOOGLE_SCRIPT_URL;
-      form.method = 'POST';
-      form.style.display = 'none';
-      
-      const input = document.createElement('input');
-      input.name = 'data';
-      input.value = JSON.stringify({ action: 'get_recipes' });
-      form.appendChild(input);
-      
-      document.body.appendChild(form);
-      form.submit();
-      
-      // Set timeout untuk response
-      setTimeout(async () => {
-        try {
-          // Coba GET request untuk mendapatkan data
-          const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipes&t=${Date.now()}`);
-          
-          if (response.ok) {
-            const result = await response.json();
-            if (result.success && result.recipes) {
-              setAvailableRecipes(result.recipes);
-              setShowRecipeSelector(true);
-              setSaveStatus({ type: 'success', message: `✅ Loaded ${result.recipes.length} recipes` });
-            } else {
-              setSaveStatus({ type: 'warning', message: 'No recipes found' });
-            }
+      // Untuk no-cors, kita perlu approach berbeda
+      // Coba fetch dengan method berbeda
+      try {
+        const getResponse = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipes&nocache=${Date.now()}`);
+        if (getResponse.ok) {
+          const result = await getResponse.json();
+          if (result.success && result.recipes) {
+            setAvailableRecipes(result.recipes);
+            setShowRecipeSelector(true);
+            setSaveStatus({ type: 'success', message: `✅ Loaded ${result.recipes.length} recipes` });
+          } else {
+            // Fallback ke cache lokal
+            const cached = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
+            setAvailableRecipes(cached);
+            setShowRecipeSelector(true);
+            setSaveStatus({ type: 'warning', message: `⚠️ Using cached data (${cached.length} recipes)` });
           }
-        } catch (error) {
-          console.log('Error loading recipes:', error);
-          setSaveStatus({ type: 'error', message: 'Failed to load recipes' });
         }
-        
-        document.body.removeChild(form);
-        document.body.removeChild(iframe);
-        setIsLoading(false);
-      }, 3000);
+      } catch (getError) {
+        console.log('GET request failed, using fallback:', getError);
+        // Fallback ke cache lokal
+        const cached = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
+        setAvailableRecipes(cached);
+        setShowRecipeSelector(true);
+        setSaveStatus({ type: 'warning', message: `⚠️ Using cached data (${cached.length} recipes)` });
+      }
       
-    } catch (error) {
       setIsLoading(false);
-      setSaveStatus({ type: 'error', message: 'Error loading recipes' });
+    } catch (error) {
+      console.error('Load recipes error:', error);
+      setIsLoading(false);
+      // Fallback ke cache lokal
+      const cached = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
+      setAvailableRecipes(cached);
+      setShowRecipeSelector(true);
+      setSaveStatus({ type: 'warning', message: `⚠️ Using cached data (${cached.length} recipes)` });
     }
   };
 
   // ===== LOAD SPECIFIC RECIPE FOR EDITING =====
-  const loadRecipeForEditing = async (recipeId, rowNumber) => {
+  const loadRecipeForEditing = async (recipeId) => {
     try {
       setIsLoading(true);
       setSaveStatus({ type: 'loading', message: '📥 Loading recipe...' });
       
-      // Gunakan form submission
-      const form = document.createElement('form');
-      const iframe = document.createElement('iframe');
-      iframe.name = 'load-recipe-iframe';
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
+      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipe&recipe_id=${recipeId}&t=${Date.now()}`);
       
-      form.target = iframe.name;
-      form.action = GOOGLE_SCRIPT_URL;
-      form.method = 'POST';
-      form.style.display = 'none';
-      
-      const input = document.createElement('input');
-      input.name = 'data';
-      input.value = JSON.stringify({ 
-        action: 'get_recipe',
-        recipe_id: rowNumber || recipeId
-      });
-      form.appendChild(input);
-      
-      document.body.appendChild(form);
-      form.submit();
-      
-      setTimeout(async () => {
-        try {
-          const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=get_recipe&recipe_id=${rowNumber || recipeId}&t=${Date.now()}`);
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (result.success && result.recipe) {
+          const recipe = result.recipe;
           
-          if (response.ok) {
-            const result = await response.json();
-            
-            if (result.success && result.recipe) {
-              const recipe = result.recipe;
+          // Isi form dengan data dari Google Sheets
+          setRecipeName(recipe.recipe_name || '');
+          setRecipeCategory(recipe.recipe_category || 'Makanan');
+          setRecipeSubCategory(recipe.recipe_subcategory || 'Main Course');
+          setBrand(recipe.brand || '');
+          setTargetCost(recipe.target_cost?.toString() || '');
+          setTargetPieces(recipe.target_pieces?.toString() || '');
+          setProfitMargin(recipe.profit_margin || 40);
+          setGoFoodPercentage(recipe.gofood_percentage || 20);
+          setTaxPercentage(recipe.tax_percentage || 10);
+          
+          // Isi ingredients (parsing dari string JSON jika perlu)
+          if (recipe.ingredients) {
+            let parsedIngredients = [];
+            try {
+              if (typeof recipe.ingredients === 'string') {
+                parsedIngredients = JSON.parse(recipe.ingredients);
+              } else {
+                parsedIngredients = recipe.ingredients;
+              }
               
-              // Isi form dengan data dari Google Sheets
-              setRecipeName(recipe.recipe_name || '');
-              setRecipeCategory(recipe.recipe_category || 'Makanan');
-              setRecipeSubCategory(recipe.recipe_subcategory || 'Main Course');
-              setBrand(recipe.brand || '');
-              setTargetCost(recipe.target_cost?.toString() || '');
-              setTargetPieces(recipe.target_pieces?.toString() || '');
-              setProfitMargin(recipe.profit_margin || 40);
-              setGoFoodPercentage(recipe.gofood_percentage || 20);
-              setTaxPercentage(recipe.tax_percentage || 10);
-              
-              // Isi ingredients
-              if (recipe.ingredients && recipe.ingredients.length > 0) {
-                const formattedIngredients = recipe.ingredients.map((ing, index) => ({
+              if (parsedIngredients && parsedIngredients.length > 0) {
+                const formattedIngredients = parsedIngredients.map((ing, index) => ({
                   id: index + 1,
-                  name: ing.name || ing.ingredient_name || '',
-                  usage: ing.usage?.toString() || ing.usage_amount?.toString() || '',
-                  unit: ing.unit || ing.usage_unit || 'gr',
-                  purchasePrice: ing.purchase_price?.toString() || '',
-                  purchaseUnit: ing.purchase_unit?.toString() || '1'
+                  name: ing.name || '',
+                  usage: ing.usage?.toString() || '',
+                  unit: ing.unit || 'gr',
+                  purchasePrice: ing.purchasePrice?.toString() || '',
+                  purchaseUnit: ing.purchaseUnit?.toString() || '1'
                 }));
                 setIngredients(formattedIngredients);
               }
-              
-              // Isi packaging
-              if (recipe.packaging) {
-                setConsumable({
-                  name: recipe.packaging.name || recipe.packaging.item || 'Packaging',
-                  cost: recipe.packaging.cost?.toString() || '',
-                  quantity: recipe.packaging.quantity?.toString() || '1',
-                  unit: recipe.packaging.unit || 'unit'
-                });
-              }
-              
-              setEditMode(true);
-              setEditRecipeId(recipe.id);
-              setEditRecipeRow(rowNumber || recipeId);
-              setShowRecipeSelector(false);
-              setSaveStatus({ type: 'success', message: `✅ "${recipe.recipe_name}" loaded for editing` });
-              
-            } else {
-              setSaveStatus({ type: 'error', message: 'Failed to load recipe data' });
+            } catch (e) {
+              console.log('Error parsing ingredients:', e);
+              // Fallback: set empty ingredients
+              setIngredients([{ id: 1, name: '', usage: '', unit: 'gr', purchasePrice: '', purchaseUnit: '' }]);
             }
           }
-        } catch (error) {
-          setSaveStatus({ type: 'error', message: 'Error loading recipe data' });
+          
+          // Isi packaging
+          if (recipe.packaging) {
+            try {
+              let parsedPackaging;
+              if (typeof recipe.packaging === 'string') {
+                parsedPackaging = JSON.parse(recipe.packaging);
+              } else {
+                parsedPackaging = recipe.packaging;
+              }
+              
+              if (parsedPackaging) {
+                setConsumable({
+                  name: parsedPackaging.name || 'Packaging',
+                  cost: parsedPackaging.cost?.toString() || '',
+                  quantity: parsedPackaging.quantity?.toString() || '1',
+                  unit: parsedPackaging.unit || 'unit'
+                });
+              }
+            } catch (e) {
+              console.log('Error parsing packaging:', e);
+            }
+          }
+          
+          setEditMode(true);
+          setEditRecipeId(recipe.id);
+          setShowRecipeSelector(false);
+          setSaveStatus({ type: 'success', message: `✅ "${recipe.recipe_name}" loaded for editing` });
+          
+        } else {
+          setSaveStatus({ type: 'error', message: 'Failed to load recipe data' });
         }
-        
-        document.body.removeChild(form);
-        document.body.removeChild(iframe);
-        setIsLoading(false);
-      }, 3000);
+      } else {
+        setSaveStatus({ type: 'error', message: 'Network error loading recipe' });
+      }
       
+      setIsLoading(false);
     } catch (error) {
       setIsLoading(false);
       setSaveStatus({ type: 'error', message: 'Error loading recipe' });
@@ -323,10 +314,12 @@ const App = () => {
     try {
       const now = new Date();
       const timestamp = now.toLocaleString('id-ID');
+      const dateOnly = now.toISOString().split('T')[0];
 
-      // Prepare data untuk 3 sheets
-      const summaryData = {
+      // Data untuk Sheet "Recipes"
+      const recipeData = {
         timestamp: timestamp,
+        date: dateOnly,
         recipe_name: recipeName.trim(),
         recipe_category: recipeCategory,
         recipe_subcategory: recipeSubCategory,
@@ -339,93 +332,126 @@ const App = () => {
         hpp_per_piece: calculateHPPPerPiece(),
         profit_margin: profitMargin,
         dine_in_price: calculateDineInPrice(),
+        ingredients: JSON.stringify(ingredients.map(ing => ({
+          name: ing.name.trim(),
+          usage: ing.usage,
+          unit: ing.unit,
+          purchasePrice: ing.purchasePrice,
+          purchaseUnit: ing.purchaseUnit,
+          cost: calculateIngredientCost(ing)
+        }))),
+        packaging: JSON.stringify(consumable),
+        notes: '',
+        status: isUpdate ? 'UPDATED' : 'ACTIVE'
+      };
+
+      // Data untuk Sheet "Pricing"
+      const pricingData = {
+        recipe_id: editRecipeId || `NEW_${Date.now()}`,
+        recipe_name: recipeName.trim(),
+        category: recipeCategory,
+        subcategory: recipeSubCategory,
+        hpp_per_piece: calculateHPPPerPiece(),
+        profit_margin: profitMargin,
+        dine_in_price: calculateDineInPrice(),
         gofood_percentage: goFoodPercentage,
         tax_percentage: taxPercentage,
         gofood_price: calculateGoFoodPrice(),
         gross_profit: calculateGrossProfit(),
-        status: isUpdate ? 'UPDATED' : 'SAVED'
-      };
-
-      const ingredientsData = ingredients.map((ing, index) => ({
-        ingredient_name: ing.name.trim(),
-        usage_amount: parseFloat(ing.usage) || 0,
-        usage_unit: ing.unit,
-        purchase_price: parseFloat(ing.purchasePrice) || 0,
-        purchase_unit: parseFloat(ing.purchaseUnit) || 1,
-        ingredient_cost: calculateIngredientCost(ing)
-      }));
-
-      const packagingData = {
-        item_name: consumable.name,
-        cost: parseFloat(consumable.cost) || 0,
-        quantity: consumable.quantity,
-        unit: consumable.unit
+        target_cost: parseFloat(targetCost) || 0,
+        variance: (parseFloat(targetCost) || 0) - calculateHPPPerPiece(),
+        status: 'ACTIVE',
+        last_updated: timestamp
       };
 
       const allData = {
         action: isUpdate ? 'update_recipe' : 'save_recipe',
-        timestamp: timestamp,
-        recipe_id: editRecipeRow || editRecipeId, // Kirim row number untuk update
-        summary: summaryData,
-        ingredients: ingredientsData,
-        packaging: packagingData,
-        source: 'Netlify App'
+        recipe_id: editRecipeId, // Untuk update
+        recipe: recipeData,
+        pricing: pricingData,
+        source: 'Netlify HPP Calculator'
       };
 
-      // Gunakan form submission
-      const form = document.createElement('form');
-      const iframe = document.createElement('iframe');
-      iframe.name = 'save-recipe-iframe-' + Date.now();
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
+      // Kirim data ke Google Apps Script dengan FormData untuk bypass CORS
+      const formData = new FormData();
+      formData.append('data', JSON.stringify(allData));
       
-      form.target = iframe.name;
-      form.action = GOOGLE_SCRIPT_URL;
-      form.method = 'POST';
-      form.style.display = 'none';
+      // eslint-disable-next-line no-unused-vars
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        body: formData,
+        mode: 'no-cors' // Mode no-cors untuk bypass CORS
+      });
       
-      const input = document.createElement('input');
-      input.name = 'data';
-      input.value = JSON.stringify(allData);
-      form.appendChild(input);
+      // Simpan ke cache lokal sebagai fallback
+      saveToLocalCache(recipeData, pricingData);
       
-      document.body.appendChild(form);
-      form.submit();
+      setSaveStatus({ 
+        type: 'success', 
+        message: `✅ Recipe "${recipeName}" ${isUpdate ? 'updated' : 'saved'} successfully!` 
+      });
       
-      // Simpan ke cache lokal
-      saveToLocalCache(summaryData, ingredientsData);
-      
-      // Beri feedback
+      // Reset form setelah 3 detik (hanya jika bukan update)
       setTimeout(() => {
-        setSaveStatus({ 
-          type: 'success', 
-          message: `✅ Recipe "${recipeName}" ${isUpdate ? 'updated' : 'saved'} successfully!` 
-        });
-        
-        setTimeout(() => {
+        if (!isUpdate) {
           resetAllData();
-          setSaveStatus({ type: 'info', message: '📝 Form cleared' });
-        }, 3000);
-        
-        document.body.removeChild(form);
-        document.body.removeChild(iframe);
-        setIsLoading(false);
-      }, 2000);
-
+          setSaveStatus({ type: 'info', message: '📝 Form cleared. Ready for new recipe!' });
+        }
+      }, 3000);
+      
+      setIsLoading(false);
     } catch (error) {
-      setSaveStatus({ type: 'error', message: '❌ Save failed' });
+      console.error('Save error:', error);
+      // Simpan ke cache lokal sebagai fallback
+      try {
+        const now = new Date();
+        const timestamp = now.toLocaleString('id-ID');
+        const recipeData = {
+          timestamp: timestamp,
+          recipe_name: recipeName.trim(),
+          recipe_category: recipeCategory,
+          recipe_subcategory: recipeSubCategory,
+          brand: brand.trim() || '-',
+          target_cost: parseFloat(targetCost) || 0,
+          target_pieces: parseFloat(targetPieces) || 0,
+          hpp_per_piece: calculateHPPPerPiece(),
+          profit_margin: profitMargin,
+          dine_in_price: calculateDineInPrice(),
+          status: 'CACHED_OFFLINE'
+        };
+        
+        saveToLocalCache(recipeData, {});
+      } catch (cacheError) {
+        console.error('Cache save error:', cacheError);
+      }
+      
+      setSaveStatus({ 
+        type: 'warning', 
+        message: `⚠️ Saved to local cache. Check internet connection and retry.` 
+      });
       setIsLoading(false);
     }
   };
 
   // ===== LOCAL CACHE =====
-  const saveToLocalCache = (summaryData, ingredientsData) => {
+  const saveToLocalCache = (recipeData, pricingData) => {
     try {
-      const cacheData = { ...summaryData, ingredients: ingredientsData, cached_at: new Date().toISOString() };
+      const cacheData = { 
+        ...recipeData, 
+        ...pricingData, 
+        cached_at: new Date().toISOString() 
+      };
+      
       const existingCache = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
-      existingCache.unshift(cacheData);
-      localStorage.setItem('hpp_cache', JSON.stringify(existingCache.slice(0, 20)));
-      setRecipeHistory(existingCache.slice(0, 20));
+      
+      // Hapus duplikat berdasarkan recipe_name
+      const filteredCache = existingCache.filter(item => 
+        item.recipe_name !== recipeData.recipe_name
+      );
+      
+      filteredCache.unshift(cacheData);
+      localStorage.setItem('hpp_cache', JSON.stringify(filteredCache.slice(0, 20)));
+      setRecipeHistory(filteredCache.slice(0, 20));
     } catch (error) {
       console.error('Cache error:', error);
     }
@@ -441,8 +467,90 @@ const App = () => {
     setProfitMargin(recipe.profit_margin || 40);
     setGoFoodPercentage(recipe.gofood_percentage || 20);
     setTaxPercentage(recipe.tax_percentage || 10);
+    
+    // Load ingredients dari cache
+    if (recipe.ingredients && typeof recipe.ingredients === 'string') {
+      try {
+        const parsedIngredients = JSON.parse(recipe.ingredients);
+        if (parsedIngredients && parsedIngredients.length > 0) {
+          const formattedIngredients = parsedIngredients.map((ing, index) => ({
+            id: index + 1,
+            name: ing.name || '',
+            usage: ing.usage?.toString() || '',
+            unit: ing.unit || 'gr',
+            purchasePrice: ing.purchasePrice?.toString() || '',
+            purchaseUnit: ing.purchaseUnit?.toString() || '1'
+          }));
+          setIngredients(formattedIngredients);
+        }
+      } catch (e) {
+        console.log('Error loading ingredients from cache:', e);
+        setIngredients([{ id: 1, name: '', usage: '', unit: 'gr', purchasePrice: '', purchaseUnit: '' }]);
+      }
+    } else {
+      setIngredients([{ id: 1, name: '', usage: '', unit: 'gr', purchasePrice: '', purchaseUnit: '' }]);
+    }
+    
+    // Load packaging dari cache
+    if (recipe.packaging && typeof recipe.packaging === 'string') {
+      try {
+        const parsedPackaging = JSON.parse(recipe.packaging);
+        if (parsedPackaging) {
+          setConsumable({
+            name: parsedPackaging.name || 'Packaging',
+            cost: parsedPackaging.cost?.toString() || '',
+            quantity: parsedPackaging.quantity?.toString() || '1',
+            unit: parsedPackaging.unit || 'unit'
+          });
+        }
+      } catch (e) {
+        console.log('Error loading packaging from cache:', e);
+        setConsumable({ name: 'Packaging', cost: '', quantity: '1', unit: 'unit' });
+      }
+    }
+    
     setSaveStatus({ type: 'info', message: '📂 Recipe loaded from cache' });
     setShowHistory(false);
+    setEditMode(false);
+    setEditRecipeId(null);
+  };
+
+  // ===== DELETE RECIPE =====
+  const deleteRecipe = async (recipeId) => {
+    if (!window.confirm('Are you sure you want to delete this recipe?')) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setSaveStatus({ type: 'loading', message: '🗑️ Deleting recipe...' });
+
+      const formData = new FormData();
+      formData.append('data', JSON.stringify({
+        action: 'delete_recipe',
+        recipe_id: recipeId
+      }));
+
+      // eslint-disable-next-line no-unused-vars
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        body: formData,
+        mode: 'no-cors'
+      });
+
+      setSaveStatus({ type: 'success', message: '✅ Recipe deleted successfully!' });
+      
+      // Refresh recipe list
+      setTimeout(() => {
+        loadRecipesFromGoogleSheets();
+      }, 1000);
+      
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Delete error:', error);
+      setSaveStatus({ type: 'error', message: `❌ Delete failed: ${error.message}` });
+      setIsLoading(false);
+    }
   };
 
   // ===== INITIAL LOAD =====
@@ -450,22 +558,37 @@ const App = () => {
     testConnection();
     const cached = JSON.parse(localStorage.getItem('hpp_cache') || '[]');
     setRecipeHistory(cached);
-    
+  }, []);
+
+  // ===== INTERVAL CONNECTION CHECK =====
+  useEffect(() => {
     const interval = setInterval(() => {
       if (connectionStatus !== 'connected') {
         testConnection();
       }
-    }, 120000);
+    }, 120000); // Check setiap 2 menit
     
     return () => clearInterval(interval);
-  }, []);
+  }, [connectionStatus]);
+
+  // Filter recipes by search term
+  const filteredRecipes = availableRecipes.filter(recipe => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      recipe.recipe_name?.toLowerCase().includes(term) ||
+      recipe.brand?.toLowerCase().includes(term) ||
+      recipe.recipe_category?.toLowerCase().includes(term) ||
+      recipe.recipe_subcategory?.toLowerCase().includes(term)
+    );
+  });
 
   return (
     <div className="container mt-3">
       {/* Header */}
       <div className="header-section text-center mb-4">
         <h1 className="text-primary">🚀 HPP Calculator - Production</h1>
-        <p className="text-muted">Connected to Google Sheets (3 Sheets)</p>
+        <p className="text-muted">Connected to Google Sheets (2 Sheets: Recipes & Pricing)</p>
         
         <div className="d-flex justify-content-center align-items-center mb-3">
           <div className={`badge ${connectionStatus === 'connected' ? 'bg-success' : 
@@ -502,15 +625,16 @@ const App = () => {
         )}
         
         <div className="mt-2 small text-muted">
-          <span>Sheets: Summary, Ingredients, Packaging</span>
+          <span>Sheets: Recipes & Pricing</span>
           <span className="ms-3">Status: {connectionStatus}</span>
+          <span className="ms-3">Mode: {editMode ? 'EDITING' : 'NEW RECIPE'}</span>
         </div>
       </div>
 
       {editMode && (
         <div className="alert alert-warning text-center">
           <i className="bi bi-pencil-fill me-2"></i>
-          <strong>EDIT MODE:</strong> Editing "{recipeName}" (Row: {editRecipeRow || editRecipeId})
+          <strong>EDIT MODE:</strong> Editing "{recipeName}" (ID: {editRecipeId})
         </div>
       )}
 
@@ -603,50 +727,68 @@ const App = () => {
                   </div>
                   
                   <div className="row g-2">
-                    <div className="col-md-4"><label className="form-label small">Nama Bahan *</label>
+                    <div className="col-md-4">
+                      <label className="form-label small">Nama Bahan *</label>
                       <input type="text" className="form-control form-control-sm" value={ingredient.name} 
-                        onChange={(e) => updateIngredient(ingredient.id, 'name', e.target.value)} placeholder="Tepung Terigu" disabled={isLoading} required />
+                        onChange={(e) => updateIngredient(ingredient.id, 'name', e.target.value)} 
+                        placeholder="Tepung Terigu" disabled={isLoading} required />
                     </div>
-                    <div className="col-md-3"><label className="form-label small">Jumlah Pakai *</label>
+                    <div className="col-md-3">
+                      <label className="form-label small">Jumlah Pakai *</label>
                       <div className="input-group input-group-sm">
                         <input type="number" className="form-control" value={ingredient.usage} 
-                          onChange={(e) => updateIngredient(ingredient.id, 'usage', e.target.value)} placeholder="360" step="0.01" min="0" disabled={isLoading} required />
+                          onChange={(e) => updateIngredient(ingredient.id, 'usage', e.target.value)} 
+                          placeholder="360" step="0.01" min="0" disabled={isLoading} required />
                         <select className="form-select" style={{ width: '80px' }} value={ingredient.unit} 
                           onChange={(e) => updateIngredient(ingredient.id, 'unit', e.target.value)} disabled={isLoading}>
-                          <option value="gr">gr</option><option value="ml">ml</option><option value="kg">kg</option>
-                          <option value="pcs">pcs</option><option value="sdm">sdm</option><option value="sdt">sdt</option>
+                          <option value="gr">gr</option>
+                          <option value="ml">ml</option>
+                          <option value="kg">kg</option>
+                          <option value="pcs">pcs</option>
+                          <option value="sdm">sdm</option>
+                          <option value="sdt">sdt</option>
                         </select>
                       </div>
                     </div>
-                    <div className="col-md-3"><label className="form-label small">Harga Beli *</label>
+                    <div className="col-md-3">
+                      <label className="form-label small">Harga Beli *</label>
                       <div className="input-group input-group-sm">
                         <span className="input-group-text">Rp</span>
                         <input type="number" className="form-control" value={ingredient.purchasePrice} 
-                          onChange={(e) => updateIngredient(ingredient.id, 'purchasePrice', e.target.value)} placeholder="25000" step="100" min="0" disabled={isLoading} required />
+                          onChange={(e) => updateIngredient(ingredient.id, 'purchasePrice', e.target.value)} 
+                          placeholder="25000" step="100" min="0" disabled={isLoading} required />
                       </div>
                     </div>
-                    <div className="col-md-2"><label className="form-label small">Satuan Beli *</label>
+                    <div className="col-md-2">
+                      <label className="form-label small">Satuan Beli *</label>
                       <input type="number" className="form-control form-control-sm" value={ingredient.purchaseUnit} 
-                        onChange={(e) => updateIngredient(ingredient.id, 'purchaseUnit', e.target.value)} placeholder="1000" step="0.01" min="0.01" disabled={isLoading} required />
+                        onChange={(e) => updateIngredient(ingredient.id, 'purchaseUnit', e.target.value)} 
+                        placeholder="1000" step="0.01" min="0.01" disabled={isLoading} required />
                       <small className="text-muted">dalam {ingredient.unit}</small>
                     </div>
                   </div>
                   
                   <div className="mt-2">
-                    <small className="text-success"><i className="bi bi-calculator me-1"></i>Biaya: <strong>{formatRupiah(calculateIngredientCost(ingredient))}</strong></small>
+                    <small className="text-success">
+                      <i className="bi bi-calculator me-1"></i>Biaya: <strong>{formatRupiah(calculateIngredientCost(ingredient))}</strong>
+                    </small>
                   </div>
                 </div>
               ))}
               
               <div className="mt-3">
-                <small className="text-muted"><i className="bi bi-info-circle me-1"></i>Total semua bahan: <strong>{formatRupiah(calculateTotalMaterialCost())}</strong></small>
+                <small className="text-muted">
+                  <i className="bi bi-info-circle me-1"></i>Total semua bahan: <strong>{formatRupiah(calculateTotalMaterialCost())}</strong>
+                </small>
               </div>
             </div>
           </div>
 
           {/* Additional Costs */}
           <div className="card shadow-sm mb-4">
-            <div className="card-header bg-warning"><h5 className="mb-0">📦 Biaya Tambahan</h5></div>
+            <div className="card-header bg-warning">
+              <h5 className="mb-0">📦 Biaya Tambahan</h5>
+            </div>
             <div className="card-body">
               <div className="row">
                 <div className="col-md-6 mb-3">
@@ -654,14 +796,16 @@ const App = () => {
                   <div className="input-group">
                     <span className="input-group-text">Rp</span>
                     <input type="number" className="form-control" value={consumable.cost} 
-                      onChange={(e) => setConsumable({...consumable, cost: e.target.value})} placeholder="5000" min="0" disabled={isLoading} />
+                      onChange={(e) => setConsumable({...consumable, cost: e.target.value})} 
+                      placeholder="5000" min="0" disabled={isLoading} />
                   </div>
                 </div>
                 <div className="col-md-6 mb-3">
                   <label className="form-label"><i className="bi bi-cash-coin me-2"></i>Margin Profit (%)</label>
                   <div className="input-group">
                     <input type="number" className="form-control" value={profitMargin} 
-                      onChange={(e) => setProfitMargin(e.target.value)} placeholder="40" min="0" max="100" disabled={isLoading} />
+                      onChange={(e) => setProfitMargin(e.target.value)} 
+                      placeholder="40" min="0" max="100" disabled={isLoading} />
                     <span className="input-group-text">%</span>
                   </div>
                 </div>
@@ -673,23 +817,40 @@ const App = () => {
         {/* Right Column - Results */}
         <div className="col-lg-5">
           <div className="card shadow-sm mb-4">
-            <div className="card-header bg-info text-white"><h5 className="mb-0">📊 Ringkasan Biaya</h5></div>
+            <div className="card-header bg-info text-white">
+              <h5 className="mb-0">📊 Ringkasan Biaya</h5>
+            </div>
             <div className="card-body">
               <div className="summary-item mb-3">
-                <div className="d-flex justify-content-between mb-1"><span>Total Biaya Bahan:</span><span className="fw-bold">{formatRupiah(calculateTotalMaterialCost())}</span></div>
+                <div className="d-flex justify-content-between mb-1">
+                  <span>Total Biaya Bahan:</span>
+                  <span className="fw-bold">{formatRupiah(calculateTotalMaterialCost())}</span>
+                </div>
                 <div className="progress mb-2" style={{height: '8px'}}>
-                  <div className="progress-bar bg-success" style={{width: `${Math.min(100, (calculateTotalMaterialCost() / (calculateTotalProductionCost() || 1)) * 100)}%`}}></div>
+                  <div className="progress-bar bg-success" 
+                       style={{width: `${Math.min(100, (calculateTotalMaterialCost() / (calculateTotalProductionCost() || 1)) * 100)}%`}}>
+                  </div>
                 </div>
               </div>
               <div className="summary-item mb-3">
-                <div className="d-flex justify-content-between mb-1"><span>Biaya Packaging:</span><span className="fw-bold">{formatRupiah(parseFloat(consumable.cost) || 0)}</span></div>
+                <div className="d-flex justify-content-between mb-1">
+                  <span>Biaya Packaging:</span>
+                  <span className="fw-bold">{formatRupiah(parseFloat(consumable.cost) || 0)}</span>
+                </div>
                 <div className="progress mb-2" style={{height: '8px'}}>
-                  <div className="progress-bar bg-warning" style={{width: `${Math.min(100, ((parseFloat(consumable.cost) || 0) / (calculateTotalProductionCost() || 1)) * 100)}%`}}></div>
+                  <div className="progress-bar bg-warning" 
+                       style={{width: `${Math.min(100, ((parseFloat(consumable.cost) || 0) / (calculateTotalProductionCost() || 1)) * 100)}%`}}>
+                  </div>
                 </div>
               </div>
               <div className="summary-item mb-3">
-                <div className="d-flex justify-content-between mb-1"><span>Total Biaya Produksi:</span><span className="fw-bold text-primary">{formatRupiah(calculateTotalProductionCost())}</span></div>
-                <div className="progress mb-2" style={{height: '8px'}}><div className="progress-bar bg-primary" style={{width: '100%'}}></div></div>
+                <div className="d-flex justify-content-between mb-1">
+                  <span>Total Biaya Produksi:</span>
+                  <span className="fw-bold text-primary">{formatRupiah(calculateTotalProductionCost())}</span>
+                </div>
+                <div className="progress mb-2" style={{height: '8px'}}>
+                  <div className="progress-bar bg-primary" style={{width: '100%'}}></div>
+                </div>
               </div>
               <hr />
               <div className="result-box p-3 bg-light rounded mb-3">
@@ -707,7 +868,9 @@ const App = () => {
                       {formatRupiah((parseFloat(targetCost) || 0) - calculateHPPPerPiece())}
                     </h5>
                   </div>
-                  <small className="text-muted">{(parseFloat(targetCost) || 0) >= calculateHPPPerPiece() ? '✅ Menguntungkan' : '⚠️ Perlu penyesuaian'}</small>
+                  <small className="text-muted">
+                    {(parseFloat(targetCost) || 0) >= calculateHPPPerPiece() ? '✅ Menguntungkan' : '⚠️ Perlu penyesuaian'}
+                  </small>
                 </div>
               )}
             </div>
@@ -715,42 +878,66 @@ const App = () => {
 
           {/* Price Calculator */}
           <div className="card shadow-sm mb-4">
-            <div className="card-header bg-purple text-white"><h5 className="mb-0">💰 Kalkulator Harga Jual</h5></div>
+            <div className="card-header bg-purple text-white">
+              <h5 className="mb-0">💰 Kalkulator Harga Jual</h5>
+            </div>
             <div className="card-body">
               <div className="row mb-3">
                 <div className="col-md-6">
                   <label className="form-label small">Biaya Platform (%)</label>
                   <div className="input-group input-group-sm mb-2">
-                    <input type="number" className="form-control" value={goFoodPercentage} onChange={(e) => setGoFoodPercentage(e.target.value)} placeholder="20" min="0" max="100" disabled={isLoading} />
+                    <input type="number" className="form-control" value={goFoodPercentage} 
+                      onChange={(e) => setGoFoodPercentage(e.target.value)} 
+                      placeholder="20" min="0" max="100" disabled={isLoading} />
                     <span className="input-group-text">%</span>
                   </div>
                 </div>
                 <div className="col-md-6">
                   <label className="form-label small">Pajak (%)</label>
                   <div className="input-group input-group-sm mb-2">
-                    <input type="number" className="form-control" value={taxPercentage} onChange={(e) => setTaxPercentage(e.target.value)} placeholder="10" min="0" max="100" disabled={isLoading} />
+                    <input type="number" className="form-control" value={taxPercentage} 
+                      onChange={(e) => setTaxPercentage(e.target.value)} 
+                      placeholder="10" min="0" max="100" disabled={isLoading} />
                     <span className="input-group-text">%</span>
                   </div>
                 </div>
               </div>
               <div className="price-results">
                 <div className="price-item mb-2 p-2 bg-light rounded">
-                  <div className="d-flex justify-content-between"><span>Harga Dine In:</span><span className="fw-bold">{formatRupiah(calculateDineInPrice())}</span></div>
+                  <div className="d-flex justify-content-between">
+                    <span>Harga Dine In:</span>
+                    <span className="fw-bold">{formatRupiah(calculateDineInPrice())}</span>
+                  </div>
                   <small className="text-muted">Margin: {profitMargin}%</small>
                 </div>
                 <div className="price-item mb-2 p-2 bg-light rounded">
-                  <div className="d-flex justify-content-between"><span>+ Biaya Platform ({goFoodPercentage}%):</span><span className="text-warning">+ {formatRupiah(calculateGoFoodCost())}</span></div>
+                  <div className="d-flex justify-content-between">
+                    <span>+ Biaya Platform ({goFoodPercentage}%):</span>
+                    <span className="text-warning">+ {formatRupiah(calculateGoFoodCost())}</span>
+                  </div>
                 </div>
                 <div className="price-item mb-2 p-2 bg-light rounded">
-                  <div className="d-flex justify-content-between"><span>+ Pajak ({taxPercentage}%):</span><span className="text-warning">+ {formatRupiah(calculateRestaurantTax())}</span></div>
+                  <div className="d-flex justify-content-between">
+                    <span>+ Pajak ({taxPercentage}%):</span>
+                    <span className="text-warning">+ {formatRupiah(calculateRestaurantTax())}</span>
+                  </div>
                 </div>
                 <div className="price-item p-2 bg-success text-white rounded mt-3">
-                  <div className="d-flex justify-content-between"><span><strong>HARGA GOFOOD:</strong></span><span><strong>{formatRupiah(calculateGoFoodPrice())}</strong></span></div>
+                  <div className="d-flex justify-content-between">
+                    <span><strong>HARGA GOFOOD:</strong></span>
+                    <span><strong>{formatRupiah(calculateGoFoodPrice())}</strong></span>
+                  </div>
                 </div>
               </div>
               <div className="mt-3 row">
-                <div className="col-md-6"><small className="text-muted"><i className="bi bi-graph-up me-1"></i>Laba: {formatRupiah(calculateGrossProfit())}</small></div>
-                <div className="col-md-6 text-end"><small className="text-muted">Margin: {profitMargin}%</small></div>
+                <div className="col-md-6">
+                  <small className="text-muted">
+                    <i className="bi bi-graph-up me-1"></i>Laba: {formatRupiah(calculateGrossProfit())}
+                  </small>
+                </div>
+                <div className="col-md-6 text-end">
+                  <small className="text-muted">Margin: {profitMargin}%</small>
+                </div>
               </div>
             </div>
           </div>
@@ -767,25 +954,35 @@ const App = () => {
                   <li>Isi semua data dengan lengkap</li>
                   <li>Pastikan koneksi internet stabil</li>
                   <li>Klik tombol di bawah</li>
-                  <li>Data akan disimpan ke 3 sheets: Summary, Ingredients, Packaging</li>
+                  <li>Data akan disimpan ke 2 sheets: Recipes & Pricing</li>
                 </ol>
               </div>
               
               <div className="alert alert-info small">
                 <strong><i className="bi bi-google me-1"></i>Google Sheets Structure:</strong>
-                <p className="mb-0 mt-1">Data akan disimpan ke 3 sheets terpisah untuk organisasi yang lebih baik.</p>
+                <p className="mb-0 mt-1">Data akan disimpan ke 2 sheets: "Recipes" (semua data) dan "Pricing" (harga jual).</p>
               </div>
               
               <div className="d-grid gap-2">
                 <button className={editMode ? "btn btn-warning btn-lg" : "btn btn-success btn-lg"}
                   onClick={() => saveToGoogleSheets(editMode)}
-                  disabled={isLoading || !recipeName.trim() || connectionStatus !== 'connected'}>
-                  {isLoading ? <><span className="spinner-border spinner-border-sm me-2"></span>{editMode ? 'Updating...' : 'Saving...'}</> : 
-                   <><i className={editMode ? "bi bi-arrow-clockwise me-2" : "bi bi-save me-2"}></i>{editMode ? 'Update Recipe' : 'Save New Recipe'}</>}
+                  disabled={isLoading || !recipeName.trim()}>
+                  {isLoading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2"></span>
+                      {editMode ? 'Updating...' : 'Saving...'}
+                    </>
+                  ) : (
+                    <>
+                      <i className={editMode ? "bi bi-arrow-clockwise me-2" : "bi bi-save me-2"}></i>
+                      {editMode ? 'Update Recipe' : 'Save New Recipe'}
+                    </>
+                  )}
                 </button>
                 
                 <button className="btn btn-outline-primary" onClick={() => setShowHistory(!showHistory)} disabled={isLoading}>
-                  <i className="bi bi-clock-history me-2"></i>{showHistory ? 'Sembunyikan' : 'Lihat'} History ({recipeHistory.length})
+                  <i className="bi bi-clock-history me-2"></i>
+                  {showHistory ? 'Sembunyikan' : 'Lihat'} History ({recipeHistory.length})
                 </button>
               </div>
             </div>
@@ -796,31 +993,85 @@ const App = () => {
       {/* Recipe Selector Modal */}
       {showRecipeSelector && (
         <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
-          <div className="modal-dialog modal-lg">
+          <div className="modal-dialog modal-xl modal-dialog-scrollable">
             <div className="modal-content">
               <div className="modal-header bg-warning text-white">
-                <h5 className="modal-title"><i className="bi bi-journal-text me-2"></i>Pilih Recipe untuk Diedit</h5>
+                <h5 className="modal-title"><i className="bi bi-journal-text me-2"></i>Select Recipe to Edit ({availableRecipes.length} found)</h5>
                 <button type="button" className="btn-close btn-close-white" onClick={() => setShowRecipeSelector(false)}></button>
               </div>
               <div className="modal-body">
-                {availableRecipes.length > 0 ? (
+                {/* Search Bar */}
+                <div className="mb-3">
+                  <div className="input-group">
+                    <span className="input-group-text">
+                      <i className="bi bi-search"></i>
+                    </span>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Search by recipe name, brand, or category..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                    {searchTerm && (
+                      <button className="btn btn-outline-secondary" onClick={() => setSearchTerm('')}>
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <small className="text-muted">Showing {filteredRecipes.length} of {availableRecipes.length} recipes</small>
+                </div>
+                
+                {filteredRecipes.length > 0 ? (
                   <div className="table-responsive">
-                    <table className="table table-hover">
-                      <thead>
-                        <tr><th>Row#</th><th>Nama Resep</th><th>Kategori</th><th>Brand</th><th>Tanggal</th><th>Aksi</th></tr>
+                    <table className="table table-hover table-sm">
+                      <thead className="table-light">
+                        <tr>
+                          <th>ID</th>
+                          <th>Recipe Name</th>
+                          <th>Category</th>
+                          <th>Brand</th>
+                          <th>HPP/Unit</th>
+                          <th>Dine In Price</th>
+                          <th>GoFood Price</th>
+                          <th>Last Updated</th>
+                          <th>Actions</th>
+                        </tr>
                       </thead>
                       <tbody>
-                        {availableRecipes.map((recipe) => (
-                          <tr key={recipe.rowNumber || recipe.id}>
-                            <td><span className="badge bg-dark">{recipe.rowNumber || recipe.id}</span></td>
-                            <td><strong>{recipe.recipe_name}</strong></td>
-                            <td><span className="badge bg-info">{recipe.recipe_category}</span></td>
-                            <td>{recipe.brand || '-'}</td>
-                            <td><small>{recipe.timestamp || 'N/A'}</small></td>
+                        {filteredRecipes.map((recipe) => (
+                          <tr key={recipe.id}>
                             <td>
-                              <button className="btn btn-sm btn-warning" onClick={() => loadRecipeForEditing(recipe.id, recipe.rowNumber)} disabled={isLoading}>
-                                <i className="bi bi-pencil me-1"></i>Edit
-                              </button>
+                              <span className="badge bg-secondary" title={recipe.id}>
+                                {recipe.id?.substring(0, 8)}...
+                              </span>
+                            </td>
+                            <td>
+                              <strong>{recipe.recipe_name}</strong>
+                              {recipe.notes && (
+                                <div><small className="text-muted">{recipe.notes}</small></div>
+                              )}
+                            </td>
+                            <td>
+                              <span className="badge bg-info me-1">{recipe.recipe_category}</span>
+                              <small>{recipe.recipe_subcategory}</small>
+                            </td>
+                            <td>{recipe.brand || '-'}</td>
+                            <td className="text-success">{formatRupiah(recipe.hpp_per_piece || 0)}</td>
+                            <td className="text-primary">{formatRupiah(recipe.dine_in_price || 0)}</td>
+                            <td className="text-danger">{formatRupiah(recipe.gofood_price || 0)}</td>
+                            <td>
+                              <small>{recipe.timestamp || 'N/A'}</small>
+                            </td>
+                            <td>
+                              <div className="btn-group btn-group-sm">
+                                <button className="btn btn-warning" onClick={() => loadRecipeForEditing(recipe.id)} disabled={isLoading}>
+                                  <i className="bi bi-pencil me-1"></i>Edit
+                                </button>
+                                <button className="btn btn-outline-danger" onClick={() => deleteRecipe(recipe.id)} disabled={isLoading}>
+                                  <i className="bi bi-trash"></i>
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -829,13 +1080,32 @@ const App = () => {
                   </div>
                 ) : (
                   <div className="text-center py-4">
-                    <div className="spinner-border text-warning mb-3" role="status"><span className="visually-hidden">Loading...</span></div>
-                    <p className="text-muted">Memuat data dari Google Sheets...</p>
+                    {searchTerm ? (
+                      <>
+                        <i className="bi bi-search" style={{fontSize: '3rem', color: '#ccc'}}></i>
+                        <p className="text-muted mt-3">No recipes found for "{searchTerm}"</p>
+                        <button className="btn btn-outline-secondary mt-2" onClick={() => setSearchTerm('')}>
+                          Clear Search
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="spinner-border text-warning mb-3" role="status">
+                          <span className="visually-hidden">Loading...</span>
+                        </div>
+                        <p className="text-muted">Loading recipes from Google Sheets...</p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowRecipeSelector(false)}>Batal</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowRecipeSelector(false)}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-outline-primary" onClick={loadRecipesFromGoogleSheets}>
+                  <i className="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
               </div>
             </div>
           </div>
@@ -847,20 +1117,35 @@ const App = () => {
         <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-lg">
             <div className="modal-content">
-              <div className="modal-header bg-primary text-white"><h5 className="modal-title">📜 Local History</h5>
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">📜 Local History ({recipeHistory.length})</h5>
                 <button type="button" className="btn-close btn-close-white" onClick={() => setShowHistory(false)}></button>
               </div>
               <div className="modal-body">
                 {recipeHistory.length > 0 ? (
                   <div className="table-responsive">
                     <table className="table table-hover">
-                      <thead><tr><th>Tanggal</th><th>Nama Resep</th><th>Kategori</th><th>HPP</th><th>Harga Jual</th><th>Aksi</th></tr></thead>
+                      <thead>
+                        <tr>
+                          <th>Tanggal</th>
+                          <th>Nama Resep</th>
+                          <th>Kategori</th>
+                          <th>HPP</th>
+                          <th>Harga Jual</th>
+                          <th>Aksi</th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {recipeHistory.map((recipe, index) => (
                           <tr key={index}>
-                            <td><small>{recipe.timestamp}</small></td>
+                            <td><small>{recipe.timestamp || recipe.cached_at?.substring(0, 10)}</small></td>
                             <td><strong>{recipe.recipe_name}</strong></td>
-                            <td><span className="badge bg-info">{recipe.recipe_category}</span></td>
+                            <td>
+                              <span className="badge bg-info">{recipe.recipe_category}</span>
+                              {recipe.recipe_subcategory && (
+                                <small className="ms-1">{recipe.recipe_subcategory}</small>
+                              )}
+                            </td>
                             <td>{formatRupiah(recipe.hpp_per_piece || 0)}</td>
                             <td>{formatRupiah(recipe.gofood_price || 0)}</td>
                             <td>
@@ -881,7 +1166,21 @@ const App = () => {
                 )}
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowHistory(false)}>Tutup</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowHistory(false)}>
+                  Tutup
+                </button>
+                {recipeHistory.length > 0 && (
+                  <button type="button" className="btn btn-outline-danger" 
+                    onClick={() => {
+                      if (window.confirm('Clear all history?')) {
+                        localStorage.removeItem('hpp_cache');
+                        setRecipeHistory([]);
+                        setShowHistory(false);
+                      }
+                    }}>
+                    <i className="bi bi-trash me-1"></i>Clear All
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -890,12 +1189,27 @@ const App = () => {
 
       <footer className="mt-4 mb-3 text-center">
         <div className="row">
-          <div className="col-md-4"><p className="small text-muted mb-1"><span className={`badge ${connectionStatus === 'connected' ? 'bg-success' : 'bg-warning'}`}>
-            {connectionStatus === 'connected' ? '✅ CONNECTED' : '⚠️ CHECKING'}</span></p></div>
-          <div className="col-md-4"><p className="small text-muted mb-1">Mode: <strong>{editMode ? 'EDITING' : 'CREATING NEW'}</strong></p></div>
-          <div className="col-md-4"><p className="small text-muted mb-1">Sheets: <strong>3 Sheets Connected</strong></p></div>
+          <div className="col-md-4">
+            <p className="small text-muted mb-1">
+              <span className={`badge ${connectionStatus === 'connected' ? 'bg-success' : 'bg-warning'}`}>
+                {connectionStatus === 'connected' ? '✅ CONNECTED' : '⚠️ CHECKING'}
+              </span>
+            </p>
+          </div>
+          <div className="col-md-4">
+            <p className="small text-muted mb-1">
+              Mode: <strong>{editMode ? 'EDITING' : 'CREATING NEW'}</strong>
+            </p>
+          </div>
+          <div className="col-md-4">
+            <p className="small text-muted mb-1">
+              Sheets: <strong>Recipes & Pricing</strong>
+            </p>
+          </div>
         </div>
-        <p className="small text-muted mt-2"><i className="bi bi-google me-1"></i>HPP Calculator v3.1 | 3 Sheets Integration</p>
+        <p className="small text-muted mt-2">
+          <i className="bi bi-google me-1"></i>HPP Calculator v4.0 | 2 Sheets Integration | Offline Support
+        </p>
       </footer>
     </div>
   );
